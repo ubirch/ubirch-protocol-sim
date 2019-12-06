@@ -11,9 +11,14 @@ modem or smart card capabilities.
 The requirement is an interface that can send APDU commands to the SIM card application. 
 This most often will be a modem that supports the standard `AT+CSIM` command (3GPP TS 27.007).
 
-- [SIM Application Customer Manual](docs/CustomerManual_TLSAuthApp_v1.3.1.pdf) (PDF)
+- [SIGNiT Customer Manual](docs/SIGNiT Customer Manual.pdf) (PDF)
 - [Micropython Example Code](micropython/ubirch/ubirch_sim.py) (.py)
 
+### Requirements
+
+- a SIM card with the ubirch applet installed
+- a Modem that supports the AT+CSIM commands to send APDU commands to the SIM card
+- connectivity
 
 ## Key Generation
 
