@@ -11,7 +11,7 @@ modem or smart card capabilities.
 The requirement is an interface that can send APDU commands to the SIM card application. 
 This most often will be a modem that supports the standard `AT+CSIM` command (3GPP TS 27.007).
 
-- [SIGNiT Customer Manual](docs/SIGNiT Customer Manual v3.pdf) (PDF)
+- [SIGNiT Customer Manual](docs/SIGNiT%20Customer%20Manual%20v3.pdf) (PDF)
 - [Micropython Example Code](micropython/ubirch/ubirch_sim.py) (.py)
 
 ### Requirements
