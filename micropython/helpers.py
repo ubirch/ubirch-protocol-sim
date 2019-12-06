@@ -27,8 +27,7 @@ def nb_iot_connect(lte: LTE, apn: str):
     print("connected")
 
 
-def wifi_connect(ssid, pwd):
-    wlan = WLAN(mode=WLAN.STA)
+def wifi_connect(wlan: WLAN, ssid: str, pwd: str):
     nets = wlan.scan()
     print("-- searching for wifi networks...")
     for net in nets:
