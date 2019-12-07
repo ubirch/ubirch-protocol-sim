@@ -80,10 +80,12 @@ class Protocol:
         self.DEBUG = at_debug
 
         # wait until the modem is ready
+        self.lte.pppsuspend()
         r = self.lte.send_at_cmd("AT+CFUN?")
         while not ("+CFUN: 1" in r or "+CFUN: 4" in r):
             time.sleep(1)
             r = self.lte.send_at_cmd("AT+CFUN?")
+        self.lte.pppresume()
 
         # select the SignApp and check pin
         self.select()
@@ -127,10 +129,12 @@ class Protocol:
         :param cmd: the command to execute
         :return: a tuple of (data, code)
         """
+        self.lte.pppsuspend()
         atcmd = 'AT+CSIM={},"{}"'.format(len(cmd), cmd.upper())
         if self.DEBUG: print("++ " + atcmd)
         result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
         if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
+        self.lte.pppresume()
         return result
 
     def _execute(self, cmd: str) -> (bytes, str):
@@ -141,6 +145,7 @@ class Protocol:
         """
         MAX = 110
         if len(cmd) > MAX:
+            self.lte.pppsuspend()
             atcmd = 'AT+CSIM={},"{}'.format(len(cmd), cmd[:MAX].upper())
             if self.DEBUG: print("+++ " + atcmd)
             result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
@@ -149,9 +154,10 @@ class Protocol:
             if self.DEBUG: print("+++ " + atcmd)
             result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
             if self.DEBUG: print('--- ' + '\r\n-- '.join([r for r in result]))
+            self.lte.pppresume()
         else:
             result = self._execute_simple(cmd)
-
+        
         if result[-1] == 'OK':
             result = result[0][7:].split(',')[1]
             data = b''

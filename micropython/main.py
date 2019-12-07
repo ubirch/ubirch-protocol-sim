@@ -2,12 +2,13 @@ import crypto
 import hashlib
 import json
 import pycom
+import machine
 import time
 import ubinascii as binascii
 from uuid import UUID
 from network import LTE, WLAN
 
-from helpers import wifi_connect, nb_iot_connect, get_certificate, register_key, post
+from helpers import wifi_connect, nb_iot_attach, nb_iot_connect, get_certificate, register_key, post
 from ubirch import Protocol
 
 print("** ubirch protocol (SIM) ...")
@@ -33,7 +34,14 @@ HEADERS = [
 
 # initialize NB-IoT connection
 lte = LTE()
-nb_iot_connect(lte, config["apn"])
+if not nb_iot_attach(lte, config["apn"]):
+    print("ERROR: unable to attach to network")
+    time.sleep(20)
+    machine.reset()
+if not nb_iot_connect(lte):
+    print("ERROR: unable to connect to network")
+    time.sleep(20)
+    machine.reset()
 
 # the pycom module restricts the size of SIM command lines, use only single character name!
 # G+D personalized cards have a device_name="ukey" (its the index used to access the key)
@@ -49,6 +57,7 @@ except Exception as e:
 
 # create a certificate for the device and register public key at ubirch key service
 csr = get_certificate(device_name, device_uuid, ubirch)
+
 r = register_key(KEY_SERVER, csr, config["api"]["key"], debug=False)
 if '200 OK' in r:
     print(">> successfully sent key registration")
@@ -82,7 +91,7 @@ while True:
     #     wifi_connect(wlan, config["wifi"]["ssid"], config["wifi"]["pass"])
     if not lte.isconnected():
         print("!! lost connection, trying to reconnect ...")
-        nb_iot_connect(lte, config["apn"])
+        nb_iot_connect(lte)
 
     # send message to your backend here
 
