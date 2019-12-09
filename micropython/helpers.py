@@ -13,7 +13,7 @@ def nb_iot_attach(lte: LTE, apn: str) -> bool:
     lte.attach(band=8, apn=apn)
     i = 0
     print("++ attaching to the NB IoT network")
-    while not lte.isattached() and i < 100:
+    while not lte.isattached() and i < 20:
         time.sleep(1.0)
         sys.stdout.write(".")
         i = i + 1
@@ -26,14 +26,14 @@ def nb_iot_attach(lte: LTE, apn: str) -> bool:
 def nb_iot_connect(lte: LTE) -> bool:
     lte.connect()  # start a data session and obtain an IP address
     i = 0
-    while not lte.isconnected():
+    while not lte.isconnected() and i < 20:
         time.sleep(0.5)
         sys.stdout.write(".")
         i = i + 1
     print("")
     if lte.isconnected():
         print("connected: " + str(i * 2) + "s")
-        print('-- IP address: ' + str(lte.ifconfig()))
+        #print('-- IP address: ' + str(lte.ifconfig()))
         return True
     return False
 
@@ -97,6 +97,8 @@ def post(server: str, path: str, headers: list, data: bytes, debug: bool = False
         print("===")
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sslsock = ssl.wrap_socket(sock)
+    socket.dnsserver(1, '8.8.4.4')
+    socket.dnsserver(0, '8.8.8.8')
     sslsock.connect(socket.getaddrinfo(server, 443)[0][-1])
     sslsock.send(req)
     sslsock.send(data)

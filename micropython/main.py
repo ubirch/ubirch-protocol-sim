@@ -35,12 +35,8 @@ HEADERS = [
 # initialize NB-IoT connection
 lte = LTE()
 if not nb_iot_attach(lte, config["apn"]):
-    print("ERROR: unable to attach to network")
-    time.sleep(20)
-    machine.reset()
-if not nb_iot_connect(lte):
-    print("ERROR: unable to connect to network")
-    time.sleep(20)
+    print("ERROR: unable to attach to network. Resetting...")
+    time.sleep(5)
     machine.reset()
 
 # the pycom module restricts the size of SIM command lines, use only single character name!
@@ -58,17 +54,28 @@ except Exception as e:
 # create a certificate for the device and register public key at ubirch key service
 csr = get_certificate(device_name, device_uuid, ubirch)
 
+if not nb_iot_connect(lte):
+    print("ERROR: unable to connect to network. Resetting...")
+    time.sleep(5)
+    machine.reset()
+
 r = register_key(KEY_SERVER, csr, config["api"]["key"], debug=False)
 if '200 OK' in r:
     print(">> successfully sent key registration")
+else:
+    print("!! request to key server failed: {}\nResetting...".format(r))
+    time.sleep(5)
+    machine.reset()
 
 # get public key of device
 public_key = ubirch.key_get(device_name)
 print("public key: {} ({})".format(binascii.hexlify(public_key).decode(), len(public_key)))
 
-interval = 60
+interval = 30
 pycom.heartbeat(False)
 while True:
+    interval = interval + 5
+    print("interval: {}s".format(interval))
     pycom.rgbled(0x002200)  # LED green
     # start a timer
     start_time = time.time()
@@ -85,6 +92,12 @@ while True:
         binascii.b2a_base64(payload_hash).decode().rstrip('\n'))  # remove newline at end
     print("message: {}".format(message))
 
+    # send message to your backend here
+
+    # generate UPP
+    upp = ubirch.message_chained(device_name, payload_hash)
+    print("UPP: {} ({})".format(binascii.hexlify(upp).decode(), len(upp)))
+
     # make sure device is still connected before sending data
     # if not wlan.isconnected():
     #     print("!! lost connection, trying to reconnect ...")
@@ -93,12 +106,6 @@ while True:
         print("!! lost connection, trying to reconnect ...")
         nb_iot_connect(lte)
 
-    # send message to your backend here
-
-    # generate UPP
-    upp = ubirch.message_signed(device_name, payload_hash)
-    print("UPP: {} ({})".format(binascii.hexlify(upp).decode(), len(upp)))
-
     r = post(UPP_SERVER, '/', HEADERS, upp, debug=False)
     if '200 OK' in r:
         print(">> successfully sent UPP")
@@ -106,6 +113,8 @@ while True:
         print(r)
         pycom.rgbled(0x440000)  # LED red
         time.sleep(3)
+
+    lte.disconnect()
 
     # wait for next interval
     passed_time = time.time() - start_time

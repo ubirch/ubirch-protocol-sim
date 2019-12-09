@@ -129,12 +129,10 @@ class Protocol:
         :param cmd: the command to execute
         :return: a tuple of (data, code)
         """
-        self.lte.pppsuspend()
         atcmd = 'AT+CSIM={},"{}"'.format(len(cmd), cmd.upper())
         if self.DEBUG: print("++ " + atcmd)
         result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
         if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
-        self.lte.pppresume()
         return result
 
     def _execute(self, cmd: str) -> (bytes, str):
@@ -145,7 +143,6 @@ class Protocol:
         """
         MAX = 110
         if len(cmd) > MAX:
-            self.lte.pppsuspend()
             atcmd = 'AT+CSIM={},"{}'.format(len(cmd), cmd[:MAX].upper())
             if self.DEBUG: print("+++ " + atcmd)
             result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
@@ -154,7 +151,6 @@ class Protocol:
             if self.DEBUG: print("+++ " + atcmd)
             result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
             if self.DEBUG: print('--- ' + '\r\n-- '.join([r for r in result]))
-            self.lte.pppresume()
         else:
             result = self._execute_simple(cmd)
         
@@ -190,7 +186,9 @@ class Protocol:
         """
         Select the SIM application to execute secure operations.
         """
+        self.lte.pppsuspend()
         self._execute(STK_APP_SELECT.format(APP_DF))
+        self.lte.pppresume()
 
     def sim_auth(self, pin: str) -> bool:
         """
@@ -198,7 +196,9 @@ class Protocol:
         :param pin: the pin to use for authentication
         :return: True if the operation was successful
         """
+        self.lte.pppsuspend()
         (data, code) = self._execute(STK_AUTH_PIN.format(len(pin), binascii.hexlify(pin).decode()))
+        self.lte.pppresume()
         if code != STK_OK:
             print(code)
         return code == STK_OK
@@ -209,7 +209,9 @@ class Protocol:
         :param length: the number of random bytes to generate
         :return: a byte array containing the random bytes
         """
+        self.lte.pppsuspend()
         (data, code) = self._execute(STK_APP_RANDOM.format(length))
+        self.lte.pppresume()
         if code == STK_OK:
             return data
         raise Exception(code)
@@ -218,7 +220,9 @@ class Protocol:
         """
         Delete all existing secure memory entries.
         """
+        self.lte.pppsuspend()
         (data, code) = self._execute("80E50000")
+        self.lte.pppresume()
 
         return self._get_response(code)
 
@@ -228,6 +232,7 @@ class Protocol:
         :param entry_id: the key entry_id
         :return: the CSR
         """
+        self.lte.pppsuspend()
         (data, code) = self._execute(
             STK_APP_SS_SELECT.format(len("_" + entry_id), binascii.hexlify("_" + entry_id).decode()))
         (data, code) = self._get_response(code)
@@ -246,7 +251,10 @@ class Protocol:
             ])
             (data, code) = self._execute(STK_APP_CSR_GENERATE.format(0x80, int(len(args) / 2), args))
             (data, code) = self._get_response(code)
+            self.lte.pppresume()
             return data
+
+        self.lte.pppresume()
         raise Exception(code)
 
     def key_get(self, entry_id: str) -> [(int, bytes)]:
@@ -255,6 +263,7 @@ class Protocol:
         :param entry_id: the key to look for
         :return: the public key bytes
         """
+        self.lte.pppsuspend()
         (data, code) = self._execute(
             STK_APP_SS_SELECT.format(len("_" + entry_id), binascii.hexlify("_" + entry_id).decode()))
         (data, code) = self._get_response(code)
@@ -264,8 +273,11 @@ class Protocol:
             args = self._encode_tag([(0xD0, bytes([0x00]))])
             (data, code) = self._execute(STK_APP_KEY_GET.format(int(len(args) / 2), args))
             (data, code) = self._get_response(code)
+            self.lte.pppresume()
             # remove the fixed 0x04 prefix from the key entry_id
             return [tag[1][1:] for tag in self._decode_tag(data) if tag[0] == 195][0]
+       
+        self.lte.pppresume()
         raise Exception(code)
 
     def key_generate(self, entry_id: str, entry_title: str) -> str:
@@ -275,6 +287,7 @@ class Protocol:
         :param entry_title: the unique title of the key, which corresponds to the UUID of the device.
         :return: the entry_id name or throws an exception if the operation fails
         """
+        self.lte.pppsuspend()
         # see ch 4.1.14 ID and Title (ID shall be fix and title the UUID of the device)
 
         # prefix public key entry id and public key title with a '_'
@@ -287,6 +300,7 @@ class Protocol:
                                  (0xC1, bytes([0x03]))
                                  ])
         (data, code) = self._execute(STK_APP_KEY_GENERATE.format(int(len(args) / 2), args))
+        self.lte.pppresume()
         if code == STK_OK:
             return entry_id
         raise Exception(code)
@@ -301,6 +315,7 @@ class Protocol:
                                 23 = Ubirch Proto v2 chained message
         :return: the signature or throws an exceptions if failed
         """
+        self.lte.pppsuspend()
         args = self._encode_tag([(0xC4, str.encode(entry_id)), (0xD0, bytes([0x21]))])
         (data, code) = self._execute(STK_APP_SIGN_INIT.format(protocol_version, int(len(args) / 2), args))
         if code == STK_OK:
@@ -314,9 +329,11 @@ class Protocol:
             else:
                 (data, code) = self._execute(STK_APP_SIGN_FINAL.format(1 << 7, int(len(chunks[-1]) / 2), chunks[-1]))
             (data, code) = self._get_response(code)
+            self.lte.pppresume()
             if code == STK_OK:
                 return data
 
+        self.lte.pppresume()
         raise Exception(code)
 
     def verify(self, entry_id: str, value: bytes, protocol_version: int) -> bool:
@@ -329,6 +346,7 @@ class Protocol:
                                 23 = Ubirch Proto v2 chained message
         :return: the verification response or throws an exceptions if failed
         """
+        self.lte.pppsuspend()
         args = self._encode_tag([(0xC4, str.encode('_' + entry_id)), (0xD0, bytes([0x21]))])
         (data, code) = self._execute(STK_APP_VERIFY_INIT.format(protocol_version, int(len(args) / 2), args))
         if code == STK_OK:
@@ -341,8 +359,10 @@ class Protocol:
                 if code != STK_OK: break
             else:
                 (data, code) = self._execute(STK_APP_VERIFY_FINAL.format(1 << 7, int(len(chunks[-1]) / 2), chunks[-1]))
+            self.lte.pppresume()
             return code == STK_OK
 
+        self.lte.pppresume()
         raise Exception(code)
 
     def message_signed(self, name: str, payload: bytes) -> bytes:
