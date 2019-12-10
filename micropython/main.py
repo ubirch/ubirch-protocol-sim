@@ -63,7 +63,7 @@ r = register_key(KEY_SERVER, csr, config["api"]["key"], debug=False)
 if '200 OK' in r:
     print(">> successfully sent key registration")
 else:
-    print("!! request to key server failed: {}\nResetting...".format(r))
+    print("!! key registration not sent !! request to {} failed: {}\nResetting...".format(KEY_SERVER, r))
     time.sleep(5)
     machine.reset()
 
@@ -72,13 +72,10 @@ public_key = ubirch.key_get(device_name)
 print("public key: {} ({})".format(binascii.hexlify(public_key).decode(), len(public_key)))
 
 interval = 30
-pycom.heartbeat(False)
+pycom.heartbeat(False)  # turn off LED blinking
 while True:
-    interval = interval + 5
-    print("interval: {}s".format(interval))
-    pycom.rgbled(0x002200)  # LED green
-    # start a timer
-    start_time = time.time()
+    pycom.rgbled(0x002200)      # LED green
+    start_time = time.time()    # start timer
 
     # get data and calculate hash over timestamp, uuid and data to ensure hash is unique
     payload_data = binascii.hexlify(crypto.getrandbits(32))
@@ -92,9 +89,7 @@ while True:
         binascii.b2a_base64(payload_hash).decode().rstrip('\n'))  # remove newline at end
     print("message: {}".format(message))
 
-    # send message to your backend here
-
-    # generate UPP
+    # generate UPP with hash
     upp = ubirch.message_chained(device_name, payload_hash)
     print("UPP: {} ({})".format(binascii.hexlify(upp).decode(), len(upp)))
 
@@ -106,11 +101,16 @@ while True:
         print("!! lost connection, trying to reconnect ...")
         nb_iot_connect(lte)
 
+    # # # # # # # # # # # # # # # # # # #
+    # send message to your backend here #
+    # # # # # # # # # # # # # # # # # # #
+
+    # send UPP to ubirch backend
     r = post(UPP_SERVER, '/', HEADERS, upp, debug=False)
     if '200 OK' in r:
         print(">> successfully sent UPP")
     else:
-        print(r)
+        print("!! UPP not sent !! request to {} failed: {}".format(UPP_SERVER, r))
         pycom.rgbled(0x440000)  # LED red
         time.sleep(3)
 

@@ -9,6 +9,7 @@ import asn1
 from ubirch import Protocol
 from uuid import UUID
 
+
 def nb_iot_attach(lte: LTE, apn: str) -> bool:
     lte.attach(band=8, apn=apn)
     i = 0
@@ -23,6 +24,7 @@ def nb_iot_attach(lte: LTE, apn: str) -> bool:
         return True
     return False 
 
+
 def nb_iot_connect(lte: LTE) -> bool:
     lte.connect()  # start a data session and obtain an IP address
     i = 0
@@ -33,9 +35,10 @@ def nb_iot_connect(lte: LTE) -> bool:
     print("")
     if lte.isconnected():
         print("connected: " + str(i * 2) + "s")
-        #print('-- IP address: ' + str(lte.ifconfig()))
+        # print('-- IP address: ' + str(lte.ifconfig()))
         return True
     return False
+
 
 def wifi_connect(wlan: WLAN, ssid: str, pwd: str):
     nets = wlan.scan()

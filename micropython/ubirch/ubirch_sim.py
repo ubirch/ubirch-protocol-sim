@@ -222,9 +222,10 @@ class Protocol:
         """
         self.lte.pppsuspend()
         (data, code) = self._execute("80E50000")
+        (data, code) = self._get_response(code)
         self.lte.pppresume()
 
-        return self._get_response(code)
+        return data, code
 
     def get_csr(self, entry_id: str) -> bytes:
         """
