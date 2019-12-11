@@ -41,6 +41,18 @@ def nb_iot_connect(lte: LTE) -> bool:
     return False
 
 
+def set_time() -> bool:
+    rtc = machine.RTC()
+    i = 0
+    rtc.ntp_sync('185.15.72.251', 3600)
+    while not rtc.synced() and i < 120:
+        sys.stdout.write(".")
+        time.sleep(1)
+        i = i + 1
+    print("\n-- current time: " + str(rtc.now()) + "\n")
+    return rtc.synced()
+
+
 def wifi_connect(wlan: WLAN, ssid: str, pwd: str):
     nets = wlan.scan()
     print("-- searching for wifi networks...")
