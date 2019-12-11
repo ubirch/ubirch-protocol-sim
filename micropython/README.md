@@ -1,6 +1,6 @@
-# Micropython Example(w/ SIM)
+# Micropython Example (w/ SIM)
 
-Works on a Pycom GPy module.
+Works on a Pycom GPy module (requires at least firmware version 1.19+).
 
 The code needs a file `config.json` (not committed) that looks like this:
 
