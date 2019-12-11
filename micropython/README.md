@@ -32,6 +32,8 @@ The wifi settings are optional, if you are just using the SIM card as a trusted 
 
 # Testing
 
+The console prints the hash of the data sent as Base64 which can be used to verify with the ubirch backend.
+
 1. Test UPP has arrived correctly and was verifyable:
 ```bash
 curl -d '3W2pCWFB+v3tkJ5p2+QlQDWS5Dsj3QzaphA4ZeX/3Ss=' https://verify.dev.ubirch.com/api/upp
@@ -58,3 +60,26 @@ curl -d '3W2pCWFB+v3tkJ5p2+QlQDWS5Dsj3QzaphA4ZeX/3Ss=' https://verify.dev.ubirch
 - The Sequans modem seems to have an issue if the send interval is longer than 30s. It gets into a state
   where it does not recognize the SIM commands anymore. A solution could be (also from a point of view to
   save energy) is to completely disable the modem and connection and restart it.
+
+
+# Dissecting the UPP
+
+```
+9623c410448db5dd65644f7dafae46325db8dfffc4405c2ae0cbb68dcf34f4f4ad89fc652ca69cf809fb57b2eb6673b6bd5a4160b69ce5ce5703c9da73bcb40f53950f82ff3806f6acf995dd89390f946caa698611fb00c42030245fde6b651a8afcd140574774e1fe0fce2712233713faae9552a733404d9fc440a0e1b567352db9e0aab4b257f16c9b40497b21ffd7db317e7fb441c6c674c93299763fabdf66d5083a644500b26af1480725eda76c2fd224b4bb9f69a081c66f
+```
+
+contains:
+
+```json
+[35,"RI213WVkT32vrkYyXbjf/w==","XCrgy7aNzzT09K2J/GUsppz4CftXsutmc7a9WkFgtpzlzlcDydpzvLQPU5UPgv84Bvas+ZXdiTkPlGyqaYYR+w==",0,"MCRf3mtlGor80UBXR3Th/g/OJxIjNxP6rpVSpzNATZ8=","oOG1ZzUtueCqtLJX8WybQEl7If/X2zF+f7RBxsZ0yTKZdj+r32bVCDpkRQCyavFIByXtp2wv0iS0u59poIHGbw=="] 
+```
+
+| Data | Comment |
+| -----| ------- |
+| `96` | 6 byte array
+| `23` | version numnber (0x23)
+| `c410` `448db5dd65644f7dafae46325db8dfff` | UUID (16 byte array)
+| `c440` `5c2ae0cbb68dcf34f4f4ad89fc652ca69cf809fb57b2eb6673b6bd5a4160b69ce5ce5703c9da73bcb40f53950f82ff3806f6acf995dd89390f946caa698611fb` | chain (prev signature, 64 byte array)
+| `00` | payload type 
+| `c420` `30245fde6b651a8afcd140574774e1fe0fce2712233713faae9552a733404d9f` | hash (SHA256, 32 byte array)
+| `c440` `a0e1b567352db9e0aab4b257f16c9b40497b21ffd7db317e7fb441c6c674c93299763fabdf66d5083a644500b26af1480725eda76c2fd224b4bb9f69a081c66f` | signature (64 byte array)
