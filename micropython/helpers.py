@@ -28,6 +28,7 @@ def nb_iot_attach(lte: LTE, apn: str) -> bool:
 def nb_iot_connect(lte: LTE) -> bool:
     lte.connect()  # start a data session and obtain an IP address
     i = 0
+    print("++ connecting to the NB IoT network")
     while not lte.isconnected() and i < 20:
         time.sleep(0.5)
         sys.stdout.write(".")
