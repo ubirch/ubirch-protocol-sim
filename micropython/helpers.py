@@ -53,7 +53,7 @@ def set_time() -> bool:
     return rtc.synced()
 
 
-def wifi_connect(wlan: WLAN, ssid: str, pwd: str):
+def wifi_connect(wlan: WLAN, ssid: str, pwd: str) -> bool:
     nets = wlan.scan()
     print("-- searching for wifi networks...")
     for net in nets:
@@ -64,12 +64,8 @@ def wifi_connect(wlan: WLAN, ssid: str, pwd: str):
                 machine.idle()  # save power while waiting
             print('-- wifi network connected')
             print('-- IP address: ' + str(wlan.ifconfig()))
-            rtc = machine.RTC()
-            rtc.ntp_sync('pool.ntp.org', 3600)
-            while not rtc.synced():
-                time.sleep(1)
-            print('-- current time: ' + str(rtc.now()))
-            break
+            return True
+    return False
 
 
 def asn1tosig(data: bytes):

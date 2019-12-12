@@ -8,7 +8,7 @@ import ubinascii as binascii
 from uuid import UUID
 from network import LTE, WLAN
 
-from helpers import set_time, wifi_connect, nb_iot_attach, nb_iot_connect, get_certificate, register_key, post
+from helpers import wifi_connect, nb_iot_attach, nb_iot_connect, set_time, get_certificate, register_key, post
 from ubirch import Protocol
 
 print("** ubirch protocol (SIM) ...")
@@ -28,24 +28,27 @@ HEADERS = [
 ]
 
 # TODO take this out if LTE works
-# initialize wifi connection
+# # initialize wifi connection
 # wlan = WLAN(mode=WLAN.STA)
-# wifi_connect(wlan, config["wifi"]["ssid"], config["wifi"]["pass"])
+# if not wifi_connect(wlan, config["wifi"]["ssid"], config["wifi"]["pass"]):
+#     print("ERROR: unable to connect to network. Resetting device...")
+#     time.sleep(5)
+#     machine.reset()
 
 # initialize NB-IoT connection
 lte = LTE()
 if not nb_iot_attach(lte, config["apn"]):
-    print("ERROR: unable to attach to network. Resetting...")
+    print("ERROR: unable to attach to network. Resetting device...")
     time.sleep(5)
     machine.reset()
 
 if not nb_iot_connect(lte):
-    print("ERROR: unable to connect to network. Resetting...")
+    print("ERROR: unable to connect to network. Resetting device...")
     time.sleep(5)
     machine.reset()
 
 if not set_time():
-    print("ERROR: unable to set time. Resetting...")
+    print("ERROR: unable to set time. Resetting device...")
     time.sleep(5)
     machine.reset()
 
@@ -69,11 +72,11 @@ try:
     if '200 OK' in r:
         print(">> successfully sent key registration")
     else:
-        print("!! key registration not sent !! request to {} failed: {}\nResetting...".format(KEY_SERVER, r))
+        print("!! key registration not sent !! request to {} failed: {}\nResetting device...".format(KEY_SERVER, r))
         time.sleep(5)
         machine.reset()
 except:
-    print("ERROR: can't register key, network failure. Resetting ...")
+    print("ERROR: can't register key, network failure. Resetting device...")
     time.sleep(5)
     machine.reset()
 
@@ -105,13 +108,19 @@ while True:
 
     # make sure device is still connected before sending data
     # if not wlan.isconnected():
+    #     pycom.rgbled(0x440044)  # LED purple
     #     print("!! lost connection, trying to reconnect ...")
-    #     wifi_connect(wlan, config["wifi"]["ssid"], config["wifi"]["pass"])
+    #     if not wifi_connect(wlan, config["wifi"]["ssid"], config["wifi"]["pass"]):
+    #         print("ERROR: unable to connect to network. Resetting device...")
+    #         time.sleep(5)
+    #         machine.reset()
+    #     else:
+    #         pycom.rgbled(0x002200)  # LED green
     if not lte.isconnected():
-        pycom.rgbled(0x440044)  # LED violet
+        pycom.rgbled(0x440044)  # LED purple
         print("!! lost connection, trying to reconnect ...")
         if not nb_iot_connect(lte):
-            print("ERROR: unable to connect to network. Resetting...")
+            print("ERROR: unable to connect to network. Resetting device...")
             time.sleep(5)
             machine.reset()
         else:
