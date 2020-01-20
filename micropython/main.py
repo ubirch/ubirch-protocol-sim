@@ -28,29 +28,30 @@ HEADERS = [
 ]
 
 # TODO take this out if LTE works
-# # initialize wifi connection
-# wlan = WLAN(mode=WLAN.STA)
-# if not wifi_connect(wlan, config["wifi"]["ssid"], config["wifi"]["pass"]):
-#     print("ERROR: unable to connect to network. Resetting device...")
-#     time.sleep(5)
-#     machine.reset()
-
-# initialize NB-IoT connection
-lte = LTE()
-if not nb_iot_attach(lte, config["apn"]):
-    print("ERROR: unable to attach to network. Resetting device...")
-    time.sleep(5)
-    machine.reset()
-
-if not nb_iot_connect(lte):
+# initialize wifi connection
+wlan = WLAN(mode=WLAN.STA)
+print(wlan.scan())
+if not wifi_connect(wlan, config["wifi"]["ssid"], config["wifi"]["pass"]):
     print("ERROR: unable to connect to network. Resetting device...")
     time.sleep(5)
     machine.reset()
 
-if not set_time():
-    print("ERROR: unable to set time. Resetting device...")
-    time.sleep(5)
-    machine.reset()
+# initialize NB-IoT connection
+lte = LTE()
+# if not nb_iot_attach(lte, config["apn"]):
+#     print("ERROR: unable to attach to network. Resetting device...")
+#     time.sleep(5)
+#     machine.reset()
+#
+# if not nb_iot_connect(lte):
+#     print("ERROR: unable to connect to network. Resetting device...")
+#     time.sleep(5)
+#     machine.reset()
+#
+# if not set_time():
+#     print("ERROR: unable to set time. Resetting device...")
+#     time.sleep(5)
+#     machine.reset()
 
 # the pycom module restricts the size of SIM command lines, use only single character name!
 # G+D personalized cards have a device_name="ukey" (its the index used to access the key)
@@ -116,15 +117,15 @@ while True:
     #         machine.reset()
     #     else:
     #         pycom.rgbled(0x002200)  # LED green
-    if not lte.isconnected():
-        pycom.rgbled(0x440044)  # LED purple
-        print("!! lost connection, trying to reconnect ...")
-        if not nb_iot_connect(lte):
-            print("ERROR: unable to connect to network. Resetting device...")
-            time.sleep(5)
-            machine.reset()
-        else:
-            pycom.rgbled(0x002200)  # LED green
+    # if not lte.isconnected():
+    #     pycom.rgbled(0x440044)  # LED purple
+    #     print("!! lost connection, trying to reconnect ...")
+    #     if not nb_iot_connect(lte):
+    #         print("ERROR: unable to connect to network. Resetting device...")
+    #         time.sleep(5)
+    #         machine.reset()
+    #     else:
+    #         pycom.rgbled(0x002200)  # LED green
 
     # # # # # # # # # # # # # # # # # # #
     # send message to your backend here #
