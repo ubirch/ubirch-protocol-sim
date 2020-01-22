@@ -123,9 +123,9 @@ class Protocol:
             idx = endIdx
         return decoded
 
-    def _execute_simple(self, cmd: str) -> (bytes, str):
+    def _execute(self, cmd: str) -> (bytes, str):
         """
-        Execute an APDU command on the SIM card itself. This expects the command to completely fit into one line.
+        Execute an APDU command on the SIM card itself.
         :param cmd: the command to execute
         :return: a tuple of (data, code)
         """
@@ -133,26 +133,6 @@ class Protocol:
         if self.DEBUG: print("++ " + atcmd)
         result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
         if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
-        return result
-
-    def _execute(self, cmd: str) -> (bytes, str):
-        """
-        Execute an APDU command on the SIM card itself.
-        :param cmd: the command to execute
-        :return: a tuple of (data, code)
-        """
-        MAX = 110
-        if len(cmd) > MAX:
-            atcmd = 'AT+CSIM={},"{}'.format(len(cmd), cmd[:MAX].upper())
-            if self.DEBUG: print("+++ " + atcmd)
-            result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
-            if self.DEBUG: print('--- ' + '\r\n-- '.join([r for r in result]))
-            atcmd = '{}"'.format(cmd[MAX:].upper())
-            if self.DEBUG: print("+++ " + atcmd)
-            result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
-            if self.DEBUG: print('--- ' + '\r\n-- '.join([r for r in result]))
-        else:
-            result = self._execute_simple(cmd)
         
         if result[-1] == 'OK':
             result = result[0][7:].split(',')[1]
