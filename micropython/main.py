@@ -18,6 +18,7 @@ with open("config.json") as f:
     config = json.load(f)
 
 device_uuid = UUID(binascii.unhexlify(config["uuid"]))
+print("** UUID: {}".format(device_uuid))
 
 UPP_SERVER = 'niomon.{}.ubirch.com'.format(config["env"])
 KEY_SERVER = 'key.{}.ubirch.com'.format(config["env"])
@@ -53,16 +54,10 @@ if not set_time():
     machine.reset()
 
 # the pycom module restricts the size of SIM command lines, use only single character name!
-# G+D personalized cards have a device_name="ukey" (its the index used to access the key)
 device_name = "A"
 
 # initialize the ubirch protocol interface
 ubirch = Protocol(lte=lte, pin=config["sim"]["pin"], at_debug=config["sim"]["debug"])
-
-try:
-    ubirch.key_generate(device_name, device_uuid.hex)
-except Exception as e:
-    print("key pair may already exist: {}: {}".format(device_name, repr(e.args)))
 
 # create a certificate for the device and register public key at ubirch key service
 csr = get_certificate(device_name, device_uuid, ubirch)
@@ -82,7 +77,7 @@ except:
 
 # get public key of device
 public_key = ubirch.key_get(device_name)
-print("public key: {} ({})".format(binascii.hexlify(public_key).decode(), len(public_key)))
+print("** public key: {} ({})".format(binascii.hexlify(public_key).decode(), len(public_key)))
 
 interval = 30
 pycom.heartbeat(False)  # turn off LED blinking
