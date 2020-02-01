@@ -59,40 +59,42 @@ const (
 
 )
 
-// encode Tags into a hex encoded string.
+// encode tags into binary format (1 byte tag + 1 byte len + len bytes data)
 func (p *Protocol) encodeBinary(tags []Tag) []byte {
-	var e []byte
+	var encoded []byte
 	for _, tag := range tags {
 		if p.Debug {
 			log.Printf("ENC tag=0x%02x, len=%3d, data=%s [%q]\n", tag.Tag, len(tag.Data), hex.EncodeToString(tag.Data), tag.Data)
 		}
-		e = append(e, tag.Tag, byte(len(tag.Data)))
-		e = append(e, tag.Data...)
+		encoded = append(encoded, tag.Tag, byte(len(tag.Data)))
+		encoded = append(encoded, tag.Data...)
 	}
-	return e
+	return encoded
 }
 
-// encode Tags into a hex encoded string.
+// encode tags into a hex encoded string
 func (p *Protocol) encode(tags []Tag) string {
 	return strings.ToUpper(hex.EncodeToString(p.encodeBinary(tags)))
 }
 
+// decode a byte array into tags
 func (p *Protocol) decodeBinary(bin []byte) ([]Tag, error) {
 	var tags []Tag
 	for i := 0; i < len(bin); i++ {
+		// make sure there are at least 2 bytes left to decode (tag and length)
 		if len(bin) < i+2 {
-			return nil, errors.New(fmt.Sprintf("missing tag length: %s", hex.EncodeToString(bin[i:])))
+			return nil, errors.New(fmt.Sprintf("Tag too short: %s", hex.EncodeToString(bin[i:])))
 		}
 		tag := bin[i]
 		tagLen := int(bin[i+1])
-		if len(bin)-2 < tagLen {
-			return nil, errors.New(fmt.Sprintf("tag %02x has not enough data %d < %d", tag, len(bin)-2, tagLen))
+		if len(bin[i+2:]) < tagLen {
+			return nil, errors.New(fmt.Sprintf("Tag %02x has not enough data. Expected length: %d. Got: %d", tag, tagLen, len(bin[i+2:])))
 		}
 		if p.Debug {
 			log.Printf("DEC tag=0x%02x, len=%3d [%02x], data=%s [%q]\n", tag, tagLen, bin[i+1], hex.EncodeToString(bin[i+2:i+2+tagLen]), bin[i+2:i+2+tagLen])
 		}
 		tags = append(tags, Tag{tag, bin[i+2 : i+2+tagLen]})
-		i += 1 + tagLen
+		i += 1 + tagLen // FIXME i += 2 + tagLen (1 byte tag + 1 byte len + len bytes data)
 	}
 	return tags, nil
 }
