@@ -41,12 +41,12 @@ const (
 	stkAuthPin     = "00200000%02X%s" // authenticate with pin
 
 	// Generic app commands
-	stkAppSelect    = "00A4040010%s"   // APDU Select Application
-	stkAppRandom    = "80B900%02X00"   // APDU Generate Secure Random ([1], 4.2.7, page 50)
-	stkAppDeleteAll = "80E50000"       // APDU Delete All SS Entries ([1], 4.1.7, page 30)
-	stkAppSsSelect  = "80A50000%02X%s" // APDU Select SS Entry ([1], 4.1.2, page 25)
+	stkAppSelect        = "00A4040010%s"   // APDU Select Application
+	stkAppRandom        = "80B900%02X00"   // APDU Generate Secure Random ([1], 4.2.7, page 50)		// FIXME: update pages (do they refer to customer manual?)
+	stkAppDeleteAll     = "80E50000"       // APDU Delete All SS Entries ([1], 4.1.7, page 30)
+	stkAppSsEntrySelect = "80A50000%02X%s" // APDU Select SS Entry ([1], 4.1.2, page 25)
 
-	// Ubirch ubirch specific commands
+	// Ubirch specific commands
 	stkAppKeyGenerate = "80B28000%02X%s"   // APDU Generate Key Pair
 	stkAppKeyGet      = "80CB0000%02X%s"   // APDU Get Key
 	stkAppSignInit    = "80B5%02X00%02X%s" // APDU Sign Init command ([1], page 14)
@@ -55,7 +55,7 @@ const (
 	stkAppVerifyFinal = "80B8%02X00%02X%s" // APDU Verify Signature Update/Final ([1], page 12)
 
 	// Certificate management
-	stkAppCsrGenerate = "80BA%02X00%02X%s" // Generate Certificate Sign Request command ([1], page 5)
+	stkAppCsrGenerate = "80BA%02X00%02X%s" // Generate Certificate Sign Request command ([1], page 13)
 
 )
 
@@ -117,11 +117,12 @@ func (p *Protocol) execute(format string, v ...interface{}) (string, int, error)
 	if err != nil {
 		return "", 0, err
 	}
-	if response[len(response)-1] == "OK" {
+	if response[len(response)-1] == "OK" { // last string in response must be "OK"
 		responseLength := 0
 		responseData := ""
 		responseCode := ApduOk
 
+		// get first string from response and parse length and data of AT command
 		_, err := fmt.Sscanf(response[0], "+CSIM: %d,%s", &responseLength, &responseData)
 		if err != nil {
 			return "", 0, err
@@ -130,8 +131,8 @@ func (p *Protocol) execute(format string, v ...interface{}) (string, int, error)
 			return "", 0, errors.New("response length does not match data size")
 		}
 
-		if responseLength >= 4 && len(responseData) >= 4 {
-			codeIndex := len(responseData) - 4
+		if responseLength >= 4 { // if response data is longer than 4 byte, parse the last 4 byte into response code (hex) and return code and data. If command < 4 bytes, code defaults to ApduOk
+			codeIndex := responseLength - 4
 			code, err := strconv.ParseUint(responseData[codeIndex:], 16, 16)
 			if err != nil {
 				return "", 0, errors.New(fmt.Sprintf("invalid response code '%s': %s", responseData[codeIndex:], err))
@@ -145,11 +146,13 @@ func (p *Protocol) execute(format string, v ...interface{}) (string, int, error)
 }
 
 // retrieve an extended response by executing the get response APDU command
-func (p *Protocol) response(code int) (string, error) {
-	c := code >> 8
-	l := code & 0xff
+// TODO: What does this method do? It's being called after calls of p.execute() and passed the response code of that call.
+// TODO: Code parameter must start with 0x61 or 0x63 for command to be executed ?
+func (p *Protocol) response(code int) (string, error) { // TODO code uint16 ? can code be more than 2 bytes long?
+	c := code >> 8   // cut LSByte off
+	l := code & 0xff // LSByte
 	data := ""
-	for c == 0x61 || c == 0x63 {
+	for c == 0x61 || c == 0x63 { // ApduMoreData = 0x6310 (More data available. Get next data part required.)  FIXME: 61: ?
 		r, code, err := p.execute(stkGetResponse, l)
 		if err != nil {
 			return "", err
@@ -235,12 +238,12 @@ func (p *Protocol) GenerateKey(name string, uid uuid.UUID) error {
 	}
 
 	args := p.encode([]Tag{
-		{0xC4, []byte("_" + name)},
-		{0xC0, uidBytes},
-		{0xC1, []byte{0x02}},
-		{0xC4, []byte(name)},
-		{0xC0, uidBytes},
-		{0xC1, []byte{0x02}},
+		{0xC4, []byte("_" + name)}, // Entry ID (public key))
+		{0xC0, uidBytes},           // Entry title
+		{0xC1, []byte{0x02}},       // Permission: Only Write Allowed	// TODO: should pubkey be readable?
+		{0xC4, []byte(name)},       // Entry ID (private key))
+		{0xC0, uidBytes},           // Entry title
+		{0xC1, []byte{0x02}},       // Permission: Only Write Allowed
 	})
 	_, code, err := p.execute(stkAppKeyGenerate, len(args)/2, args)
 	if err != nil {
@@ -262,26 +265,26 @@ func (p *Protocol) GetCSR(name string) ([]byte, error) {
 		{0xD9, []byte("ubirch.com")},
 		{0xDA, []byte("info@ubirch.com")},
 	})
-	certArgs := p.encodeBinary([]Tag{
-		{0xD3, []byte{0x00}},
-		{0xE7, certAttributes},
-		{0xC2, []byte{0x0B, 0x01, 0x00}},
-		{0xD0, []byte{0x21}},
+	certArgs := p.encodeBinary([]Tag{ // encode Certification Request parameters
+		{0xD3, []byte{0x00}},             // Version
+		{0xE7, certAttributes},           // Subject Information
+		{0xC2, []byte{0x0B, 0x01, 0x00}}, // Subject PKI Algorithm Identifier: TYPE_EC_FP_PUBLIC, LENGTH_EC_FP_256
+		{0xD0, []byte{0x21}},             // Signature Algorithm Identifier: ALG_ECDSA_SHA_256
 	})
 
-	args := p.encode([]Tag{
-		{0xC4, []byte(name)},
-		{0xC4, []byte("_" + name)},
-		{0xE5, certArgs},
+	args := p.encode([]Tag{ // encode CSR command data
+		{0xC4, []byte(name)},       // Public Key ID of the key to be used as the Public Key carried in the CSR
+		{0xC4, []byte("_" + name)}, // Private Key ID of the key to be used for signing the CSR
+		{0xE5, certArgs},           // Certification Request parameters
 	})
 
-	_, code, err := p.execute(stkAppCsrGenerate, 0x80, len(args)/2, args)
+	_, code, err := p.execute(stkAppCsrGenerate, 0x80, len(args)/2, args) // FIXME: length parameter of stkAppCsrGenerate (80BA%02X00%02X%s) is not in documentation/manual. Why len(args)/2?
 	if err != nil {
 		return nil, err
 	}
 	if code != 0x6100 {
 		return nil, errors.New(fmt.Sprintf("unable to generate certificate signing request: 0x%x", code))
-	}
+	} // FIXME: code 0x6100 not in documentation/manual
 
 	data, err := p.response(code)
 	if err != nil {
@@ -294,18 +297,21 @@ func (p *Protocol) GetCSR(name string) ([]byte, error) {
 // Get the public key for a given name from the SIM storage.
 // Returns a byte array with the raw bytes of the public key.
 func (p *Protocol) GetKey(name string) ([]byte, error) {
+	// select SS entry
 	name = "_" + name
-	_, code, err := p.execute(stkAppSsSelect, len(name), hex.EncodeToString([]byte(name)))
+	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
 	if err != nil {
 		return nil, err
 	}
-	_, err = p.response(code)
+	// FIXME: stkAppSsEntrySelect commands return codes do not start with 0x61 or 0x63. why call p.response(code) here?
+	_, err = p.response(code) // FIXME: why do we not care about the response here? Could be an error code
 	if err != nil {
 		return nil, err
 	}
 
-	args := p.encode([]Tag{{0xd0, []byte{0x00}}})
-	_, code, err = p.execute(stkAppKeyGet, len(args)/2, args)
+	//
+	args := p.encode([]Tag{{0xd0, []byte{0x00}}})             // Algorithm type: Without encryption
+	_, code, err = p.execute(stkAppKeyGet, len(args)/2, args) // FIXME: why do we throw away first response here?
 	if err != nil {
 		return nil, err
 	}
@@ -333,10 +339,10 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 // pure value data is executed.
 // The method returns the signed data in the form of a ubirch-protocol packet (UPP) or
 // the raw signature in case protocol is 0.
-func (p *Protocol) Sign(name string, value []byte, protocol int) ([]byte, error) {
+func (p *Protocol) Sign(name string, value []byte, protocol int) ([]byte, error) { // FIXME should protocol type be byte?
 	args := p.encode([]Tag{
-		{0xc4, []byte(name)},
-		{0xd0, []byte{0x21}},
+		{0xc4, []byte(name)}, // Entry ID
+		{0xd0, []byte{0x21}}, // Algorithm to be used: ALG_ECDSA_SHA_256
 	})
 	_, code, err := p.execute(stkAppSignInit, protocol, len(args)/2, args)
 	if err != nil {
@@ -353,7 +359,7 @@ func (p *Protocol) Sign(name string, value []byte, protocol int) ([]byte, error)
 			end = len(data)
 		}
 		chunk := data[:end]
-		_, code, err = p.execute(stkAppSignFinal, finalBit, len(chunk)/2, chunk)
+		_, code, err = p.execute(stkAppSignFinal, finalBit, len(chunk)/2, chunk) // FIXME: not in manual
 		if err != nil {
 			return nil, err
 		}
