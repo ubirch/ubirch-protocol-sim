@@ -115,12 +115,11 @@ func (p *Protocol) execute(format string, v ...interface{}) (string, uint16, err
 	if err != nil {
 		return "", 0, err
 	}
-	if response[len(response)-1] == "OK" { // last string in response array must be "OK"
+	if response[len(response)-1] == "OK" {
 		responseLength := 0
 		responseData := ""
 		responseCode := uint16(ApduOk)
 
-		// get command length and command from first string in response array
 		_, err := fmt.Sscanf(response[0], "+CSIM: %d,%s", &responseLength, &responseData)
 		if err != nil {
 			return "", 0, err
@@ -129,7 +128,6 @@ func (p *Protocol) execute(format string, v ...interface{}) (string, uint16, err
 			return "", 0, errors.New("response length does not match data size")
 		}
 
-		// if command is longer than 4 byte, parse the last 4 byte into response code (hex) and return code and data. If command < 4 bytes, code defaults to ApduOk
 		if responseLength >= 4 {
 			codeIndex := responseLength - 4
 			code, err := strconv.ParseUint(responseData[codeIndex:], 16, 16)
