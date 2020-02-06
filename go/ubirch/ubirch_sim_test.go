@@ -84,6 +84,7 @@ func TestAPDUDecodeFails(t *testing.T) {
 		"01xx",                             // decoding will fail
 		"11223344556677889900112233445566", // not enough data
 		"FF0301020304",                     // 04 is incorrect, no tag length or data
+		"D30100E700C2030B0100D001",         // ArgGetCSREncoded but last byte missing
 	}
 
 	p := Protocol{nil, true}
