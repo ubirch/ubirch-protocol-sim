@@ -333,11 +333,16 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 // pure value data is executed.
 // The method returns the signed data in the form of a ubirch-protocol packet (UPP) or
 // the raw signature in case protocol is 0.
-func (p *Protocol) Sign(name string, value []byte, protocol int) ([]byte, error) { // TODO: protocol enum type
+func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign bool) ([]byte, error) {
 	args := p.encode([]Tag{
 		{0xc4, []byte(name)}, // Entry ID
 		{0xd0, []byte{0x21}}, // Algorithm to be used: ALG_ECDSA_SHA_256
 	})
+
+	if hashBeforeSign {
+		protocol |= 0x40
+	}
+
 	_, code, err := p.execute(stkAppSignInit, protocol, len(args)/2, args)
 	if err != nil {
 		return nil, err
