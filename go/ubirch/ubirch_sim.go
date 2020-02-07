@@ -333,11 +333,14 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 // pure value data is executed.
 // The method returns the signed data in the form of a ubirch-protocol packet (UPP) or
 // the raw signature in case protocol is 0.
-func (p *Protocol) Sign(name string, value []byte, protocol int) ([]byte, error) { // TODO: protocol enum type
+func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign bool) ([]byte, error) {
 	args := p.encode([]Tag{
 		{0xc4, []byte(name)}, // Entry ID
 		{0xd0, []byte{0x21}}, // Algorithm to be used: ALG_ECDSA_SHA_256
 	})
+	if hashBeforeSign {
+		protocol |= 0x40 // set flag for automatic hashing
+	}
 	_, code, err := p.execute(stkAppSignInit, protocol, len(args)/2, args)
 	if err != nil {
 		return nil, err
@@ -345,6 +348,7 @@ func (p *Protocol) Sign(name string, value []byte, protocol int) ([]byte, error)
 	if code != ApduOk {
 		return nil, errors.New(fmt.Sprintf("sign init failed: %v", err))
 	}
+
 	data := hex.EncodeToString(value)
 	for finalBit := 0; len(data) > 0; {
 		end := 128
@@ -375,7 +379,7 @@ func (p *Protocol) Sign(name string, value []byte, protocol int) ([]byte, error)
 // packet (UPP). If the protocol parameter is 0 a normal verify operation on the
 // pure value data is executed.
 // Returns true or false.
-func (p *Protocol) Verify(name string, value []byte, protocol int) (bool, error) {
+func (p *Protocol) Verify(name string, value []byte, protocol byte) (bool, error) {
 	args := p.encode([]Tag{
 		{0xc4, []byte("_" + name)},
 		{0xd0, []byte{0x21}},
@@ -387,6 +391,7 @@ func (p *Protocol) Verify(name string, value []byte, protocol int) (bool, error)
 	if code != ApduOk {
 		return false, errors.New(fmt.Sprintf("verify init failed: %v", err))
 	}
+
 	data := hex.EncodeToString(value)
 	for finalBit := 0; len(data) > 0; {
 		end := 128

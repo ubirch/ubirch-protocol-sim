@@ -134,7 +134,8 @@ func main() {
 		log.Printf("payload hash: hex    %s", hex.EncodeToString(digest[:]))
 
 		// create A signed UPP message and send it to the ubirch backend
-		upp, err := sim.Sign(name, digest[:], ubirch.Signed)
+		//upp, err := sim.Sign(name, digest[:], ubirch.Signed, false)
+		upp, err := sim.Sign(name, pRendered, ubirch.Signed, true) // use automatic hashing
 		if err != nil {
 			log.Printf("signing failed: %v", err)
 		} else {
@@ -171,8 +172,9 @@ func main() {
 			log.Printf("payload hash: base64 %s", base64.StdEncoding.EncodeToString(digest[:]))
 			log.Printf("payload hash: hex    %s", hex.EncodeToString(digest[:]))
 
-			// create A signed UPP message and send it to the ubirch backend
-			upp, err := sim.Sign(name, digest[:], ubirch.Chained)
+			// create a chained UPP message and send it to the ubirch backend
+			//upp, err := sim.Sign(name, digest[:], ubirch.Chained, false)
+			upp, err := sim.Sign(name, pRendered, ubirch.Chained, true) // use automatic hashing
 			if err != nil {
 				log.Printf("signing failed: %v", err)
 			} else {
@@ -186,5 +188,4 @@ func main() {
 			}
 		}
 	}
-
 }

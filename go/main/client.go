@@ -62,7 +62,7 @@ func getSignedCertificate(p *ubirch.Protocol, name string, uid uuid.UUID) ([]byt
 	}
 	log.Print(string(jsonKeyReg))
 
-	signatureAsn1, err := p.Sign(name, jsonKeyReg, 0)
+	signatureAsn1, err := p.Sign(name, jsonKeyReg, 0, false)
 	if err != nil {
 		return nil, err
 	}
