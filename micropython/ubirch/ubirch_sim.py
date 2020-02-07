@@ -133,7 +133,7 @@ class Protocol:
         if self.DEBUG: print("++ " + atcmd)
         result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
         if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
-        
+
         if result[-1] == 'OK':
             result = result[0][7:].split(',')[1]
             data = b''
@@ -257,7 +257,7 @@ class Protocol:
             self.lte.pppresume()
             # remove the fixed 0x04 prefix from the key entry_id
             return [tag[1][1:] for tag in self._decode_tag(data) if tag[0] == 195][0]
-       
+
         self.lte.pppresume()
         raise Exception(code)
 
@@ -286,18 +286,21 @@ class Protocol:
             return entry_id
         raise Exception(code)
 
-    def sign(self, entry_id: str, value: bytes, protocol_version: int) -> bytes:
+    def sign(self, entry_id: str, value: bytes, protocol_version: int, hash_before_sign: bool = False) -> bytes:
         """
         Sign a message using the given entry_id key.
         :param entry_id: the key to use for signing
         :param value: the message to sign
-        :param protocol_version: 0 = regular signing
-                                22 = Ubirch Proto v2 signed message
-                                23 = Ubirch Proto v2 chained message
-        :return: the signature or throws an exceptions if failed
+        :param protocol_version: 0x00 = regular signing
+                                 0x22 = Ubirch Proto v2 signed message
+                                 0x23 = Ubirch Proto v2 chained message
+        :param hash_before_sign: the message will be hashed before it is used to build the UPP
+        :return: the signed message or throws an exceptions if failed
         """
         self.lte.pppsuspend()
         args = self._encode_tag([(0xC4, str.encode(entry_id)), (0xD0, bytes([0x21]))])
+        if hash_before_sign:
+            protocol_version |= 0x40  # set flag for automatic hashing
         (data, code) = self._execute(STK_APP_SIGN_INIT.format(protocol_version, int(len(args) / 2), args))
         if code == STK_OK:
             args = binascii.hexlify(value).decode()
@@ -322,9 +325,9 @@ class Protocol:
         Verify a signed message using the given entry_id key.
         :param entry_id: the key to use for verification
         :param value: the message to verify
-        :param protocol_version: 0 = regular verification
-                                22 = Ubirch Proto v2 signed message
-                                23 = Ubirch Proto v2 chained message
+        :param protocol_version: 0xx0 = regular verification
+                                 0x22 = Ubirch Proto v2 signed message
+                                 0x23 = Ubirch Proto v2 chained message
         :return: the verification response or throws an exceptions if failed
         """
         self.lte.pppsuspend()
@@ -346,25 +349,29 @@ class Protocol:
         self.lte.pppresume()
         raise Exception(code)
 
-    def message_signed(self, name: str, payload: bytes) -> bytes:
+    def message_signed(self, name: str, payload: bytes, hash_before_sign: bool = False) -> bytes:
         """
-        Create a signed ubirch-ubirch message
+        Create a signed ubirch message (UPP)
         :param name: the key entry_id to use for signing
         :param payload: the data to be included in the message
+        :param hash_before_sign: payload will be hashed before it is used to build the UPP
+        :return: the signed message or throws an exceptions if failed
         """
-        return self.sign(name, payload, APP_UBIRCH_SIGNED)
+        return self.sign(name, payload, APP_UBIRCH_SIGNED, hash_before_sign=hash_before_sign)
 
-    def message_chained(self, name: str, payload: bytes) -> bytes:
+    def message_chained(self, name: str, payload: bytes, hash_before_sign: bool = False) -> bytes:
         """
-        Create a chained ubirch-ubirch message
+        Create a chained ubirch message (UPP)
         :param name: the key entry_id to use for signing
         :param payload: the data to be included in the message
+        :param hash_before_sign: payload will be hashed before it is used to build the UPP
+        :return: the chained message or throws an exceptions if failed
         """
-        return self.sign(name, payload, APP_UBIRCH_CHAINED)
+        return self.sign(name, payload, APP_UBIRCH_CHAINED, hash_before_sign=hash_before_sign)
 
     def message_verify(self, name: str, upp: bytes) -> bool:
         """
-        Verify a signed ubirch-ubirch message.
+        Verify a signed ubirch message.
         :param name: the name of the key entry_id to use (i.e. a servers public key)
         :param upp: the UPP to verify
         :return: whether the message can be verified

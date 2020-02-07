@@ -1,15 +1,16 @@
-import crypto
 import hashlib
 import json
-import pycom
-import machine
 import time
-import ubinascii as binascii
-from uuid import UUID
-from network import LTE, WLAN
 
-from helpers import wifi_connect, nb_iot_attach, nb_iot_connect, set_time, get_certificate, register_key, post
+import crypto
+import machine
+import pycom
+import ubinascii as binascii
+from network import LTE
+
+from helpers import nb_iot_attach, nb_iot_connect, set_time, get_certificate, register_key, post
 from ubirch import Protocol
+from uuid import UUID
 
 print("** ubirch protocol (SIM) ...")
 
@@ -82,23 +83,25 @@ print("** public key: {} ({})".format(binascii.hexlify(public_key).decode(), len
 interval = 30
 pycom.heartbeat(False)  # turn off LED blinking
 while True:
-    pycom.rgbled(0x002200)      # LED green
-    start_time = time.time()    # start timer
+    pycom.rgbled(0x002200)  # LED green
+    start_time = time.time()  # start timer
 
     # get data and calculate hash over timestamp, uuid and data to ensure hash is unique
     payload_data = binascii.hexlify(crypto.getrandbits(32))
-    payload_hash = hashlib.sha256("{}{}{}".format(start_time, device_uuid, payload_data)).digest()
+    unique_data = "{}{}{}".format(start_time, device_uuid, payload_data)
+    data_hash = hashlib.sha256(unique_data).digest()
 
     # create message
     message = '{{"ts":{},"id":"{}","data":"{}","hash":"{}"}}'.format(
         start_time,
         device_uuid,
         binascii.b2a_base64(payload_data).decode().rstrip('\n'),  # remove newline at end
-        binascii.b2a_base64(payload_hash).decode().rstrip('\n'))  # remove newline at end
+        binascii.b2a_base64(data_hash).decode().rstrip('\n'))  # remove newline at end
     print("message: {}".format(message))
 
     # generate UPP with hash
-    upp = ubirch.message_chained(device_name, payload_hash)
+    upp = ubirch.message_chained(device_name, data_hash)
+    # upp = ubirch.message_chained(device_name, unique_data.encode(), hash_before_sign=True)  # use automatic hashing
     print("UPP: {} ({})".format(binascii.hexlify(upp).decode(), len(upp)))
 
     # make sure device is still connected before sending data
