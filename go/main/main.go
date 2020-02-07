@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"net/http"
 
 	//"encoding/base64"
 	"encoding/hex"
@@ -105,13 +106,15 @@ func main() {
 		log.Printf("could not generate certificate: %v", err)
 	} else {
 		log.Printf("certificate: %s", string(cert))
-		r, err := post(cert,
-			fmt.Sprintf("https://key.%s.ubirch.com/api/keyService/v1/pubkey", conf.Env),
-			conf.Api.Key, map[string]string{"Content-Type": "application/json"})
+		keyServiceURL := fmt.Sprintf("https://key.%s.ubirch.com/api/keyService/v1/pubkey", conf.Env)
+		keyServiceHeader := map[string]string{"Content-Type": "application/json"}
+		statusCode, respBody, err := post(cert, keyServiceURL, conf.Api.Key, keyServiceHeader)
 		if err != nil {
 			log.Printf("unable to read response body: %v", err)
+		} else if statusCode != http.StatusOK {
+			log.Printf("request failed with status code %d: %s", statusCode, hex.EncodeToString(respBody))
 		} else {
-			log.Printf("response: %s", string(r))
+			log.Printf("response: %s", string(respBody))
 		}
 	}
 
@@ -140,11 +143,15 @@ func main() {
 			log.Printf("signing failed: %v", err)
 		} else {
 			log.Printf("upp: %s", hex.EncodeToString(upp))
-			r, err := post(upp, fmt.Sprintf("https://niomon.%s.ubirch.com/", conf.Env), conf.Api.Upp, nil)
+
+			authServiceURL := fmt.Sprintf("https://niomon.%s.ubirch.com/", conf.Env)
+			statusCode, respBody, err := post(upp, authServiceURL, conf.Api.Upp, nil)
 			if err != nil {
 				log.Printf("unable to read response body: %v", err)
+			} else if statusCode != http.StatusOK {
+				log.Printf("request failed with status code %d: %s", statusCode, hex.EncodeToString(respBody))
 			} else {
-				log.Printf("response: %s", hex.EncodeToString(r))
+				log.Printf("response: %s", hex.EncodeToString(respBody))
 			}
 		}
 
@@ -179,11 +186,15 @@ func main() {
 				log.Printf("signing failed: %v", err)
 			} else {
 				log.Printf("upp: %s", hex.EncodeToString(upp))
-				r, err := post(upp, fmt.Sprintf("https://niomon.%s.ubirch.com/", conf.Env), conf.Api.Upp, nil)
+
+				authServiceURL := fmt.Sprintf("https://niomon.%s.ubirch.com/", conf.Env)
+				statusCode, respBody, err := post(upp, authServiceURL, conf.Api.Upp, nil)
 				if err != nil {
 					log.Printf("unable to read response body: %v", err)
+				} else if statusCode != http.StatusOK {
+					log.Printf("request failed with status code %d: %s", statusCode, hex.EncodeToString(respBody))
 				} else {
-					log.Printf("response: %s", hex.EncodeToString(r))
+					log.Printf("response: %s", hex.EncodeToString(respBody))
 				}
 			}
 		}

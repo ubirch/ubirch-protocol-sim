@@ -84,23 +84,26 @@ func getSignedCertificate(p *ubirch.Protocol, name string, uid uuid.UUID) ([]byt
 	})
 }
 
-// post A http request to the backend service and
-func post(upp []byte, url string, auth string, headers map[string]string) ([]byte, error) {
+// post A http request to the backend service and return response code and body
+func post(upp []byte, url string, auth string, headers map[string]string) (int, []byte, error) {
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(upp))
 	if err != nil {
 		log.Printf("can't make new post request: %v", err)
-		return nil, err
-	} else {
-		for k, v := range headers {
-			req.Header.Set(k, v)
-		}
-		req.Header.Set("Authorization", fmt.Sprintf("Basic %s", auth))
-		resp, err := (&http.Client{}).Do(req)
-		if err != nil {
-			log.Printf("post failed; %v", err)
-		}
-		//noinspection GoUnhandledErrorResult
-		defer resp.Body.Close()
-		return ioutil.ReadAll(resp.Body)
+		return 0, nil, err
 	}
+
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Basic %s", auth))
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		log.Printf("post failed; %v", err)
+		return 0, nil, err
+	}
+	//noinspection GoUnhandledErrorResult
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	return resp.StatusCode, body, err
 }
