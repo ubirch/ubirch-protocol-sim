@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"crypto/tls"
-	"encoding/asn1"
 	"encoding/base64"
 	"encoding/json"
 	"github.com/google/uuid"
@@ -40,47 +39,40 @@ func getSignedCertificate(p *ubirch.Protocol, name string, uid uuid.UUID) ([]byt
 	}
 	const timeFormat = "2006-01-02T15:04:05.000Z"
 
+	// get the key
 	pubKey, err := p.GetKey(name)
 	if err != nil {
 		return nil, err
 	}
 
 	pubKeyBase64 := base64.StdEncoding.EncodeToString(pubKey)
-	now := time.Now()
+
+	// put it all together
+	now := time.Now().UTC()
 	keyRegistration := KeyRegistration{
 		"ecdsa-p256v1",
 		now.Format(timeFormat),
 		uid.String(),
 		pubKeyBase64,
 		pubKeyBase64,
-		now.Add(time.Duration(24 * 365 * time.Hour)).Format(timeFormat),
+		now.Add(24 * 365 * time.Hour).Format(timeFormat),
 		now.Format(timeFormat),
 	}
+
+	// create string representation and sign it
 	jsonKeyReg, err := json.Marshal(keyRegistration)
 	if err != nil {
 		return nil, err
 	}
-	log.Print(string(jsonKeyReg))
 
-	signatureAsn1, err := p.Sign(name, jsonKeyReg, 0, false)
+	signature, err := p.Sign(name, jsonKeyReg, 0, false)
 	if err != nil {
 		return nil, err
 	}
-	signature := asn1.RawValue{}
-
-	_, err = asn1.Unmarshal(signatureAsn1, &signature)
-	if err != nil {
-		return nil, err
-	}
-	// The format of our DER string is 0x02 + rlen + r + 0x02 + slen + s
-	rLen := signature.Bytes[1] // The entire length of R + offset of 2 for 0x02 and rlen
-	r := signature.Bytes[2 : rLen+2]
-	// Ignore the next 0x02 and slen bytes and just take the start of S to the end of the byte array
-	s := signature.Bytes[rLen+4:]
 
 	return json.Marshal(SignedKeyRegistration{
 		keyRegistration,
-		base64.StdEncoding.EncodeToString(append(r, s...)),
+		base64.StdEncoding.EncodeToString(signature),
 	})
 }
 

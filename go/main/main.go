@@ -81,12 +81,12 @@ func main() {
 
 	// try to generate a key (fails if exists already)
 	name := "Q"
-	err = sim.GenerateKey(name, uid)
-	if err != nil {
-		log.Printf("key may already exist: %v", err)
-	} else {
-		log.Println("generated new key")
-	}
+	//err = sim.GenerateKey(name, uid)
+	//if err != nil {
+	//	log.Printf("key may already exist: %v", err)
+	//} else {
+	//	log.Println("generated new key")
+	//}
 
 	//csr, err := sim.GetCSR(name)
 	//if err != nil {
@@ -103,22 +103,22 @@ func main() {
 		log.Printf("public key: %s", hex.EncodeToString(key))
 	}
 
-	//// register public key
-	//cert, err := getSignedCertificate(&sim, name, uid)
-	//if err != nil {
-	//	log.Printf("could not generate certificate: %v", err)
-	//} else {
-	//	log.Printf("certificate: %s", string(cert))
-	//	keyServiceURL := fmt.Sprintf("https://key.%s.ubirch.com/api/keyService/v1/pubkey", conf.Env)
-	//	statusCode, respBody, err := post(cert, keyServiceURL, map[string]string{"Content-Type": "application/json"})
-	//	if err != nil {
-	//		log.Printf("unable to read response body: %v", err)
-	//	} else if statusCode != http.StatusOK {
-	//		log.Printf("request to %s failed with status code %d: %s",keyServiceURL, statusCode, respBody)
-	//	} else {
-	//		log.Printf("response: %s", string(respBody))
-	//	}
-	//}
+	// register public key
+	cert, err := getSignedCertificate(&sim, name, uid)
+	if err != nil {
+		log.Printf("could not generate certificate: %v", err)
+	} else {
+		log.Printf("certificate: %s", string(cert))
+		keyServiceURL := fmt.Sprintf("https://key.%s.ubirch.com/api/keyService/v1/pubkey", conf.Env)
+		statusCode, respBody, err := post(cert, keyServiceURL, map[string]string{"Content-Type": "application/json"})
+		if err != nil {
+			log.Printf("unable to read response body: %v", err)
+		} else if statusCode != http.StatusOK {
+			log.Printf("request to %s failed with status code %d: %s", keyServiceURL, statusCode, respBody)
+		} else {
+			log.Printf("response: %s", string(respBody))
+		}
+	}
 
 	// send a signed message
 	type Payload struct {
