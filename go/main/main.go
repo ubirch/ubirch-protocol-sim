@@ -63,11 +63,11 @@ func main() {
 		log.Fatalf("initialization failed: %v", err)
 	}
 
-	// try to erase all generated keys (fails due to setting on some cards)
-	err = sim.DeleteAll()
-	if err != nil {
-		log.Print(err)
-	}
+	//// try to erase all generated keys (fails due to setting on some cards)
+	//err = sim.DeleteAll()
+	//if err != nil {
+	//	log.Print(err)
+	//}
 
 	data, err := sim.Random(5)
 	if err != nil {
@@ -77,12 +77,15 @@ func main() {
 
 	uuidBytes, _ := hex.DecodeString(conf.Uuid)
 	uid, err := uuid.FromBytes(uuidBytes)
+	log.Printf("UUID: %v", uid)
 
 	// try to generate a key (fails if exists already)
 	name := "Q"
 	err = sim.GenerateKey(name, uid)
 	if err != nil {
 		log.Printf("key may already exist: %v", err)
+	} else {
+		log.Println("generated new key")
 	}
 
 	//csr, err := sim.GetCSR(name)
@@ -100,23 +103,22 @@ func main() {
 		log.Printf("public key: %s", hex.EncodeToString(key))
 	}
 
-	// register public key
-	cert, err := getSignedCertificate(&sim, name, uid)
-	if err != nil {
-		log.Printf("could not generate certificate: %v", err)
-	} else {
-		log.Printf("certificate: %s", string(cert))
-		keyServiceURL := fmt.Sprintf("https://key.%s.ubirch.com/api/keyService/v1/pubkey", conf.Env)
-		keyServiceHeader := map[string]string{"Content-Type": "application/json"}
-		statusCode, respBody, err := post(cert, keyServiceURL, conf.Api.Key, keyServiceHeader)
-		if err != nil {
-			log.Printf("unable to read response body: %v", err)
-		} else if statusCode != http.StatusOK {
-			log.Printf("request failed with status code %d: %s", statusCode, hex.EncodeToString(respBody))
-		} else {
-			log.Printf("response: %s", string(respBody))
-		}
-	}
+	//// register public key
+	//cert, err := getSignedCertificate(&sim, name, uid)
+	//if err != nil {
+	//	log.Printf("could not generate certificate: %v", err)
+	//} else {
+	//	log.Printf("certificate: %s", string(cert))
+	//	keyServiceURL := fmt.Sprintf("https://key.%s.ubirch.com/api/keyService/v1/pubkey", conf.Env)
+	//	statusCode, respBody, err := post(cert, keyServiceURL, map[string]string{"Content-Type": "application/json"})
+	//	if err != nil {
+	//		log.Printf("unable to read response body: %v", err)
+	//	} else if statusCode != http.StatusOK {
+	//		log.Printf("request to %s failed with status code %d: %s",keyServiceURL, statusCode, respBody)
+	//	} else {
+	//		log.Printf("response: %s", string(respBody))
+	//	}
+	//}
 
 	// send a signed message
 	type Payload struct {
@@ -145,11 +147,15 @@ func main() {
 			log.Printf("upp: %s", hex.EncodeToString(upp))
 
 			authServiceURL := fmt.Sprintf("https://niomon.%s.ubirch.com/", conf.Env)
-			statusCode, respBody, err := post(upp, authServiceURL, conf.Api.Upp, nil)
+			statusCode, respBody, err := post(upp, authServiceURL, map[string]string{
+				"X-Ubirch-Hardware-Id": uid.String(),
+				"X-Ubirch-Auth-Type":   "ubirch",
+				"X-Ubirch-Credential":  base64.StdEncoding.EncodeToString([]byte(conf.Api.Upp)),
+			})
 			if err != nil {
 				log.Printf("unable to read response body: %v", err)
 			} else if statusCode != http.StatusOK {
-				log.Printf("request failed with status code %d: %s", statusCode, hex.EncodeToString(respBody))
+				log.Printf("request to %s failed with status code %d: %s", authServiceURL, statusCode, hex.EncodeToString(respBody))
 			} else {
 				log.Printf("response: %s", hex.EncodeToString(respBody))
 			}
@@ -188,11 +194,15 @@ func main() {
 				log.Printf("upp: %s", hex.EncodeToString(upp))
 
 				authServiceURL := fmt.Sprintf("https://niomon.%s.ubirch.com/", conf.Env)
-				statusCode, respBody, err := post(upp, authServiceURL, conf.Api.Upp, nil)
+				statusCode, respBody, err := post(upp, authServiceURL, map[string]string{
+					"X-Ubirch-Hardware-Id": uid.String(),
+					"X-Ubirch-Auth-Type":   "ubirch",
+					"X-Ubirch-Credential":  base64.StdEncoding.EncodeToString([]byte(conf.Api.Upp)),
+				})
 				if err != nil {
 					log.Printf("unable to read response body: %v", err)
 				} else if statusCode != http.StatusOK {
-					log.Printf("request failed with status code %d: %s", statusCode, hex.EncodeToString(respBody))
+					log.Printf("request to %s failed with status code %d: %s", authServiceURL, statusCode, hex.EncodeToString(respBody))
 				} else {
 					log.Printf("response: %s", hex.EncodeToString(respBody))
 				}

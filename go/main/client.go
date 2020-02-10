@@ -2,10 +2,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/asn1"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"github.com/google/uuid"
 	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
 	"io/ioutil"
@@ -85,7 +85,14 @@ func getSignedCertificate(p *ubirch.Protocol, name string, uid uuid.UUID) ([]byt
 }
 
 // post A http request to the backend service and return response code and body
-func post(upp []byte, url string, auth string, headers map[string]string) (int, []byte, error) {
+func post(upp []byte, url string, headers map[string]string) (int, []byte, error) {
+	// force HTTP/1.1 as HTTP/2 will break the headers on the server
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
+		},
+	}
+
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(upp))
 	if err != nil {
 		log.Printf("can't make new post request: %v", err)
@@ -95,8 +102,8 @@ func post(upp []byte, url string, auth string, headers map[string]string) (int, 
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Basic %s", auth))
-	resp, err := (&http.Client{}).Do(req)
+
+	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("post failed; %v", err)
 		return 0, nil, err
