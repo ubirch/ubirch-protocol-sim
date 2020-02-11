@@ -55,7 +55,8 @@ const (
 	stkAppVerifyFinal = "80B8%02X00%02X%s" // APDU Verify Signature Update/Final ([1], 2.2.4)
 
 	// Certificate management
-	stkAppCsrGenerate = "80BA%02X00%02X%s" // Generate Certificate Sign Request command ([1], 2.1.8)
+	stkAppCsrGenerateFirst = "80BA8000%02X%s" // Generate Certificate Sign Request command ([1], 2.1.8)
+	stkAppCsrGenerateNext  = "80BA8100%02X"   // Get Certificate Sign Request response ([1], 2.1.8)
 )
 
 // encode Tags into binary format (1 byte tag + 1 byte len + len bytes data)
@@ -147,7 +148,7 @@ func (p *Protocol) response(code uint16) (string, error) {
 	c := code >> 8   // first byte -> response code: 0x61 or 0x63 indicate that there is more data available
 	l := code & 0xff // second byte -> length of available data
 	data := ""
-	for c == 0x61 || c == 0x63 { // check if more data available
+	if c == 0x61 || c == 0x63 { // check if more data available
 		r, code, err := p.execute(stkGetResponse, l) // request available data
 		if err != nil {
 			return "", err
@@ -273,7 +274,7 @@ func (p *Protocol) GetCSR(name string) ([]byte, error) {
 		{0xE5, certArgs},           // Certification Request parameters
 	})
 
-	_, code, err := p.execute(stkAppCsrGenerate, 0x80, len(args)/2, args)
+	_, code, err := p.execute(stkAppCsrGenerateFirst, len(args)/2, args) // Generate CSR (Last block – get first)
 	if err != nil {
 		return nil, err
 	}
@@ -281,10 +282,21 @@ func (p *Protocol) GetCSR(name string) ([]byte, error) {
 		return nil, errors.New(fmt.Sprintf("unable to generate certificate signing request: 0x%x", code))
 	}
 
-	data, err := p.response(code)
+	data, code, err := p.execute(stkGetResponse, 0x00) // get response
 	if err != nil {
 		return nil, err
 	}
+
+	rest := ""
+	if code == ApduMoreData {
+		rest, code, _ = p.execute(stkAppCsrGenerateNext, 0x00) // Generate CSR (Last block – get next) - Wrong length
+		c := code >> 8
+		l := code & 0xff
+		if c == 0x6C {
+			rest, code, _ = p.execute(stkAppCsrGenerateNext, l) // Generate CSR (Last block – get next) - actual length
+		}
+	}
+	data += rest
 
 	return hex.DecodeString(data)
 }
