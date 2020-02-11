@@ -268,8 +268,8 @@ func (p *Protocol) GetCSR(name string) ([]byte, error) {
 	})
 
 	args := p.encode([]Tag{
-		{0xC4, []byte(name)},       // Public Key ID of the key to be used as the Public Key carried in the CSR
-		{0xC4, []byte("_" + name)}, // Private Key ID of the key to be used for signing the CSR
+		{0xC4, []byte("_" + name)}, // Public Key ID of the key to be used as the Public Key carried in the CSR
+		{0xC4, []byte(name)},       // Private Key ID of the key to be used for signing the CSR
 		{0xE5, certArgs},           // Certification Request parameters
 	})
 
