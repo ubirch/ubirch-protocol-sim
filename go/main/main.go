@@ -63,11 +63,11 @@ func main() {
 		log.Fatalf("initialization failed: %v", err)
 	}
 
-	//// try to erase all generated keys (fails due to setting on some cards)
-	//err = sim.DeleteAll()
-	//if err != nil {
-	//	log.Print(err)
-	//}
+	// try to erase all generated keys (fails due to setting on some cards)
+	err = sim.DeleteAll()
+	if err != nil {
+		log.Print(err)
+	}
 
 	data, err := sim.Random(5)
 	if err != nil {
@@ -79,14 +79,14 @@ func main() {
 	uid, err := uuid.FromBytes(uuidBytes)
 	log.Printf("UUID: %v", uid)
 
-	// try to generate a key (fails if exists already)
+	// generate a key
 	name := "Q"
-	//err = sim.GenerateKey(name, uid)
-	//if err != nil {
-	//	log.Printf("key may already exist: %v", err)
-	//} else {
-	//	log.Println("generated new key")
-	//}
+	err = sim.GenerateKey(name, uid)
+	if err != nil {
+		log.Printf("key generation failed: %v", err)
+	} else {
+		log.Println("generated new key")
+	}
 
 	//csr, err := sim.GetCSR(name)
 	//if err != nil {
