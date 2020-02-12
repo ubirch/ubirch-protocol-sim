@@ -148,7 +148,7 @@ func (p *Protocol) response(code uint16) (string, error) {
 	c := code >> 8   // first byte -> response code: 0x61 or 0x63 indicate that there is more data available
 	l := code & 0xff // second byte -> length of available data
 	data := ""
-	if c == 0x61 || c == 0x63 { // check if more data available
+	for c == 0x61 || c == 0x63 { // check if more data available
 		r, code, err := p.execute(stkGetResponse, l) // request available data
 		if err != nil {
 			return "", err
@@ -274,7 +274,7 @@ func (p *Protocol) GetCSR(name string) ([]byte, error) {
 		{0xE5, certArgs},           // Certification Request parameters
 	})
 
-	_, code, err := p.execute(stkAppCsrGenerateFirst, len(args)/2, args) // Generate CSR (Last block – get first)
+	_, code, err := p.execute(stkAppCsrGenerateFirst, len(args)/2, args) // Generate CSR
 	if err != nil {
 		return nil, err
 	}
@@ -282,21 +282,20 @@ func (p *Protocol) GetCSR(name string) ([]byte, error) {
 		return nil, errors.New(fmt.Sprintf("unable to generate certificate signing request: 0x%x", code))
 	}
 
-	data, code, err := p.execute(stkGetResponse, 0x00) // get response
+	data, code, err := p.execute(stkGetResponse, 0) // get first part of CSR
 	if err != nil {
 		return nil, err
 	}
 
-	rest := ""
 	if code == ApduMoreData {
-		rest, code, _ = p.execute(stkAppCsrGenerateNext, 0x00) // Generate CSR (Last block – get next) - Wrong length
+		moreData, code, _ := p.execute(stkAppCsrGenerateNext, 0) // get next part of CSR (wrong length)
 		c := code >> 8
 		l := code & 0xff
-		if c == 0x6C {
-			rest, code, _ = p.execute(stkAppCsrGenerateNext, l) // Generate CSR (Last block – get next) - actual length
+		if c == 0x6C { // SIM returns code 6C (wrong length) followed by one byte indicating the actual length of data still available
+			moreData, code, _ = p.execute(stkAppCsrGenerateNext, l) // get next part of CSR (actual length)
 		}
+		data += moreData
 	}
-	data += rest
 
 	return hex.DecodeString(data)
 }
