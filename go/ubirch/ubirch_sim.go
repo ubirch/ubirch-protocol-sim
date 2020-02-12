@@ -55,8 +55,9 @@ const (
 	stkAppVerifyFinal = "80B8%02X00%02X%s" // APDU Verify Signature Update/Final ([1], 2.2.4)
 
 	// Certificate management
-	stkAppCsrGenerateFirst = "80BA8000%02X%s" // Generate Certificate Sign Request command ([1], 2.1.8)
-	stkAppCsrGenerateNext  = "80BA8100%02X"   // Get Certificate Sign Request response ([1], 2.1.8)
+	stkAppCsrGenerateFirst = "80BA8000%02X%s"   // Generate Certificate Sign Request command ([1], 2.1.8)
+	stkAppCsrGenerateNext  = "80BA8100%02X"     // Get Certificate Sign Request response ([1], 2.1.8)
+	stkAppCertStore        = "80E3%02X00%02X%s" // Store Certificate
 )
 
 // encode Tags into binary format (1 byte tag + 1 byte len + len bytes data)
@@ -251,7 +252,7 @@ func (p *Protocol) GenerateKey(name string, uid uuid.UUID) error {
 	return err
 }
 
-func (p *Protocol) GetCSR(name string) ([]byte, error) {
+func (p *Protocol) GenerateCSR(name string) ([]byte, error) {
 	certAttributes := p.encodeBinary([]Tag{
 		{0xD4, []byte("DE")},
 		{0xD5, []byte("Berlin")},
@@ -298,6 +299,38 @@ func (p *Protocol) GetCSR(name string) ([]byte, error) {
 	}
 
 	return hex.DecodeString(data)
+}
+
+func (p *Protocol) StoreCSR(name string, uid uuid.UUID, cert []byte) error {
+	uidBytes, err := uid.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	args := p.encode([]Tag{
+		{0xC4, []byte(name + "c")}, // Entry ID
+		{0xC0, uidBytes},           // Entry title
+		{0xC1, []byte{0x03}},       // Permission: Read & Write Allowed
+		{0xC3, cert},               // Certificate
+	})
+
+	for finalBit := 0; len(args) > 0; {
+		end := 256
+		if len(args) < 256 {
+			finalBit = 1 << 7
+			end = len(args)
+		}
+		chunk := args[:end]
+		_, code, err := p.execute(stkAppCertStore, finalBit, len(chunk)/2, chunk)
+		if err != nil {
+			return err
+		}
+		if code != ApduOk {
+			return errors.New(fmt.Sprintf("APDU error: %x", code))
+		}
+		args = args[end:]
+	}
+	return nil
 }
 
 // Get the public key for a given name from the SIM storage.
