@@ -308,15 +308,16 @@ func (p *Protocol) StoreCSR(name string, uid uuid.UUID, cert []byte) error {
 	}
 
 	args := p.encode([]Tag{
-		{0xC4, []byte(name + "c")}, // Entry ID
-		{0xC0, uidBytes},           // Entry title
-		{0xC1, []byte{0x03}},       // Permission: Read & Write Allowed
-		{0xC3, cert},               // Certificate
+		{0xC4, []byte(name + "_c")}, // Entry ID
+		{0xC0, uidBytes},            // Entry title
+		{0xC1, []byte{0x03}},        // Permission: Read & Write Allowed
+		{0xC3, cert},                // Certificate
 	})
 
 	for finalBit := 0; len(args) > 0; {
-		end := 256
-		if len(args) < 256 {
+		maxChunkSize := 0xFF * 2
+		end := maxChunkSize
+		if len(args) < maxChunkSize {
 			finalBit = 1 << 7
 			end = len(args)
 		}
