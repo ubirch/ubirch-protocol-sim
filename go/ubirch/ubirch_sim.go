@@ -58,6 +58,7 @@ const (
 	stkAppCsrGenerateFirst = "80BA8000%02X%s"   // Generate Certificate Sign Request command ([1], 2.1.8)
 	stkAppCsrGenerateNext  = "80BA8100%02X"     // Get Certificate Sign Request response ([1], 2.1.8)
 	stkAppCertStore        = "80E3%02X00%02X%s" // Store Certificate
+	stkAppCertGet          = "80CC%02X0000"     // Get Certificate
 )
 
 // encode Tags into binary format (1 byte tag + 1 byte len + len bytes data)
@@ -288,8 +289,9 @@ func (p *Protocol) GenerateCSR(name string) ([]byte, error) {
 		return nil, err
 	}
 
-	if code == ApduMoreData {
-		moreData, code, _ := p.execute(stkAppCsrGenerateNext, 0) // get next part of CSR (wrong length)
+	for code == ApduMoreData {
+		moreData := ""
+		moreData, code, _ = p.execute(stkAppCsrGenerateNext, 0) // get next part of CSR (request wrong length)
 		c := code >> 8
 		l := code & 0xff
 		if c == 0x6C { // SIM returns code 6C (wrong length) followed by one byte indicating the actual length of data still available
@@ -332,6 +334,63 @@ func (p *Protocol) StoreCSR(name string, uid uuid.UUID, cert []byte) error {
 		args = args[end:]
 	}
 	return nil
+}
+
+// Get the X509 certificate for a given name from the SIM storage.
+// Returns a byte array with the raw bytes of the certificate.
+func (p *Protocol) GetCertificate(name string) ([]byte, error) {
+	// select SS entry
+	name += "_c" // TODO use actual entry ID for certificate
+	data, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
+	if err != nil {
+		return nil, err
+	}
+	if code != ApduOk {
+		log.Printf("selecting SS entry (%s) failed", name)
+		return nil, errors.New(fmt.Sprintf("APDU error: %x", code))
+	}
+
+	// TODO this is here for debugging. take this part out once everything works
+	tags, err := p.decode(data)
+	if err != nil {
+		return nil, err
+	}
+	for _, tag := range tags {
+		if tag.Tag == 0xc4 {
+			log.Printf("selected SS entry %s", tag.Data)
+		}
+	}
+
+	// get the certificate
+	data, code, err = p.execute(stkAppCertGet, 0)
+	if err != nil {
+		return nil, err
+	}
+	for code == ApduMoreData {
+		moreData := ""
+		moreData, code, err = p.execute(stkAppCertGet, 1)
+		if err != nil {
+			return nil, err
+		}
+		data += moreData
+	}
+	if code != ApduOk {
+		return nil, errors.New(fmt.Sprintf("APDU error: %x", code))
+	}
+
+	// extract the certificate from response tags
+	tags, err = p.decode(data)
+	if err != nil {
+		log.Printf("couldn't decode response tags! %s", data)
+		return nil, err
+	}
+	for _, tag := range tags {
+		if tag.Tag == 0xc3 {
+			// return the certificate
+			return tag.Data, nil
+		}
+	}
+	return nil, errors.New("did not find certificate in response, no tag 0xc3")
 }
 
 // Get the public key for a given name from the SIM storage.
