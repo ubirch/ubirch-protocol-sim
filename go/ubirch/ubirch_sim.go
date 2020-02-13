@@ -253,14 +253,14 @@ func (p *Protocol) GenerateKey(name string, uid uuid.UUID) error {
 	return err
 }
 
-func (p *Protocol) GenerateCSR(name string) ([]byte, error) {
+func (p *Protocol) GenerateCSR(name string, uid uuid.UUID) ([]byte, error) {
 	certAttributes := p.encodeBinary([]Tag{
 		{0xD4, []byte("DE")},
 		{0xD5, []byte("Berlin")},
 		{0xD6, []byte("Berlin")},
 		{0xD7, []byte("ubirch GmbH")},
 		{0xD8, []byte("Security")},
-		{0xD9, []byte("ubirch.com")},
+		{0xD9, []byte(uid.String())},
 		{0xDA, []byte("info@ubirch.com")},
 	})
 	certArgs := p.encodeBinary([]Tag{
