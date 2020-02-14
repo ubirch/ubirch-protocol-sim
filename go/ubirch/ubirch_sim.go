@@ -1,6 +1,8 @@
 package ubirch
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
@@ -68,7 +70,25 @@ func (p *Protocol) encodeBinary(tags []Tag) []byte {
 		if p.Debug {
 			log.Printf("ENC tag=0x%02x, len=%3d, data=%s [%q]\n", tag.Tag, len(tag.Data), hex.EncodeToString(tag.Data), tag.Data)
 		}
-		encoded = append(encoded, tag.Tag, byte(len(tag.Data)))
+
+		encoded = append(encoded, tag.Tag)
+
+		buffer := new(bytes.Buffer)
+		length := len(tag.Data)
+		if length <= 0xff {
+			err := binary.Write(buffer, binary.BigEndian, int8(len(tag.Data)))
+			if err != nil {
+				fmt.Println("binary.Write failed:", err)
+			}
+		} else if length <= 0xffff {
+			err := binary.Write(buffer, binary.BigEndian, int16(len(tag.Data)))
+			if err != nil {
+				fmt.Println("binary.Write failed:", err)
+			}
+			encoded = append(encoded, 0x82)
+		}
+
+		encoded = append(encoded, buffer.Bytes()...)
 		encoded = append(encoded, tag.Data...)
 	}
 	return encoded
