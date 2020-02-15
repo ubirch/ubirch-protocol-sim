@@ -372,25 +372,14 @@ func (p *Protocol) GetCertificate(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, code, err := p.response(code)
+	_, code, _ = p.response(code)
 	if code != ApduOk {
 		log.Printf("selecting SS entry (%s) failed", name)
 		return nil, errors.New(fmt.Sprintf("APDU error: %x", code))
 	}
 
-	// TODO this is here for debugging. take this part out once everything works
-	tags, err := p.decode(data)
-	if err != nil {
-		return nil, err
-	}
-	for _, tag := range tags {
-		if tag.Tag == 0xc4 {
-			log.Printf("selected SS entry %s", tag.Data)
-		}
-	}
-
 	// get the certificate
-	data, code, err = p.execute(stkAppCertGet, 0)
+	data, code, err := p.execute(stkAppCertGet, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -406,17 +395,15 @@ func (p *Protocol) GetCertificate(name string) ([]byte, error) {
 		return nil, errors.New(fmt.Sprintf("APDU error: %x", code))
 	}
 
-	log.Printf("\nretrieving data from SIM complete: %s\n", data)
-
 	// extract the certificate from response tags
-	tags, err = p.decode(data)
+	tags, err := p.decode(data)
 	if err != nil {
 		log.Printf("couldn't decode response tags! %s", data)
 		return nil, err
 	}
 	for _, tag := range tags {
 		if tag.Tag == 0xc3 {
-			// return the certificate // FIXME this does not return full certificate
+			// return the certificate
 			return tag.Data, nil
 		}
 	}
