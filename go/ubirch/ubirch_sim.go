@@ -330,7 +330,7 @@ func (p *Protocol) GenerateCSR(name string, uid uuid.UUID) ([]byte, error) {
 	return hex.DecodeString(data)
 }
 
-func (p *Protocol) StoreCSR(name string, uid uuid.UUID, cert []byte) error {
+func (p *Protocol) StoreCertificate(name string, uid uuid.UUID, cert []byte) error {
 	uidBytes, err := uid.MarshalBinary()
 	if err != nil {
 		return err
@@ -362,6 +362,8 @@ func (p *Protocol) StoreCSR(name string, uid uuid.UUID, cert []byte) error {
 	}
 	return nil
 }
+
+// TODO func (p *Protocol) UpdateCertificate(name string, uid uuid.UUID, cert []byte) error {}
 
 // Get the X509 certificate for a given name from the SIM storage.
 // Returns a byte array with the raw bytes of the certificate.

@@ -76,7 +76,7 @@ func main() {
 	//certBytes, err := hex.DecodeString(string(cert))
 
 	//// store certificate in SIM card
-	//err = sim.StoreCSR(name, uid, certBytes)
+	//err = sim.StoreCertificate(name, uid, certBytes)
 	//if err != nil {
 	//	log.Fatalf("storing certificate failed. %s", err)
 	//} else {
