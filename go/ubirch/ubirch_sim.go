@@ -110,6 +110,10 @@ func (p *Protocol) decodeBinary(bin []byte) ([]Tag, error) {
 		}
 		tag := bin[i]
 		tagLen = int(bin[i+1])
+		if tagLen == 0x82 { // 0x82 indicates the length of the tag data being 2 bytes long
+			tagLen = int(bin[i+2])<<8 | int(bin[i+3])
+			i += 2
+		}
 		if len(bin[i+2:]) < tagLen {
 			return nil, errors.New(fmt.Sprintf("tag %02x has not enough data %d < %d", tag, len(bin[i+2:]), tagLen))
 		}
@@ -402,6 +406,8 @@ func (p *Protocol) GetCertificate(name string) ([]byte, error) {
 		return nil, errors.New(fmt.Sprintf("APDU error: %x", code))
 	}
 
+	log.Printf("\nretrieving data from SIM complete: %s\n", data)
+
 	// extract the certificate from response tags
 	tags, err = p.decode(data)
 	if err != nil {
@@ -410,7 +416,7 @@ func (p *Protocol) GetCertificate(name string) ([]byte, error) {
 	}
 	for _, tag := range tags {
 		if tag.Tag == 0xc3 {
-			// return the certificate
+			// return the certificate // FIXME this does not return full certificate
 			return tag.Data, nil
 		}
 	}
@@ -442,6 +448,7 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	tags, err := p.decode(data)
 	if err != nil {
 		return nil, err
@@ -450,7 +457,7 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 		if tag.Tag == 0xc3 {
 			// return the public key and remove the static 0xc4 from the beginning
 			return tag.Data[1:], nil
-		} // FIXME this does not return full certificate
+		} // TODO check if this is working
 	}
 	return nil, errors.New("did not find public key entry, no tag 0xc3")
 }
