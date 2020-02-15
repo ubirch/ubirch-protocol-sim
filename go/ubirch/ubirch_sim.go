@@ -68,11 +68,12 @@ func (p *Protocol) encodeBinary(tags []Tag) []byte {
 	var encoded []byte
 	for _, tag := range tags {
 		if p.Debug {
-			log.Printf("ENC tag=0x%02x, len=%3d, data=%s [%q]\n", tag.Tag, len(tag.Data), hex.EncodeToString(tag.Data), tag.Data)
+			log.Printf("ENC tag=0x%02x, len=%3d [%02x], data=%s [%q]\n", tag.Tag, len(tag.Data), len(tag.Data), hex.EncodeToString(tag.Data), tag.Data)
 		}
 
 		encoded = append(encoded, tag.Tag)
 
+		// TODO this can be done better, but works for now
 		buffer := new(bytes.Buffer)
 		length := len(tag.Data)
 		if length <= 0xff {
@@ -113,7 +114,7 @@ func (p *Protocol) decodeBinary(bin []byte) ([]Tag, error) {
 			return nil, errors.New(fmt.Sprintf("tag %02x has not enough data %d < %d", tag, len(bin[i+2:]), tagLen))
 		}
 		if p.Debug {
-			log.Printf("DEC tag=0x%02x, len=%3d [%02x], data=%s [%q]\n", tag, tagLen, bin[i+1], hex.EncodeToString(bin[i+2:i+2+tagLen]), bin[i+2:i+2+tagLen])
+			log.Printf("DEC tag=0x%02x, len=%3d [%02x], data=%s [%q]\n", tag, tagLen, tagLen, hex.EncodeToString(bin[i+2:i+2+tagLen]), bin[i+2:i+2+tagLen])
 		}
 		tags = append(tags, Tag{tag, bin[i+2 : i+2+tagLen]})
 	}
@@ -166,20 +167,22 @@ func (p *Protocol) execute(format string, v ...interface{}) (string, uint16, err
 }
 
 // retrieve an extended response by executing the get response APDU command
-func (p *Protocol) response(code uint16) (string, error) {
+func (p *Protocol) response(code uint16) (string, uint16, error) {
 	c := code >> 8   // first byte -> response code: 0x61 or 0x63 indicate that there is more data available
 	l := code & 0xff // second byte -> length of available data
 	data := ""
 	for c == 0x61 || c == 0x63 { // check if more data available
-		r, code, err := p.execute(stkGetResponse, l) // request available data
+		r := ""
+		var err error                               // avoid shadowing of 'code'
+		r, code, err = p.execute(stkGetResponse, l) // request available data
 		if err != nil {
-			return "", err
+			return "", 0, err
 		}
 		c = code >> 8
 		l = code & 0xff
 		data += r
 	}
-	return data, nil
+	return data, code, nil
 }
 
 func (p *Protocol) selectApplet() error {
@@ -361,10 +364,11 @@ func (p *Protocol) StoreCSR(name string, uid uuid.UUID, cert []byte) error {
 func (p *Protocol) GetCertificate(name string) ([]byte, error) {
 	// select SS entry
 	name += "_c" // TODO use actual entry ID for certificate
-	data, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
+	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
 	if err != nil {
 		return nil, err
 	}
+	data, code, err := p.response(code)
 	if code != ApduOk {
 		log.Printf("selecting SS entry (%s) failed", name)
 		return nil, errors.New(fmt.Sprintf("APDU error: %x", code))
@@ -422,7 +426,7 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, err = p.response(code)
+	_, _, err = p.response(code)
 	if err != nil {
 		return nil, err
 	}
@@ -434,7 +438,7 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 		return nil, err
 	}
 
-	data, err := p.response(code)
+	data, _, err := p.response(code)
 	if err != nil {
 		return nil, err
 	}
@@ -446,7 +450,7 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 		if tag.Tag == 0xc3 {
 			// return the public key and remove the static 0xc4 from the beginning
 			return tag.Data[1:], nil
-		}
+		} // FIXME this does not return full certificate
 	}
 	return nil, errors.New("did not find public key entry, no tag 0xc3")
 }
@@ -491,7 +495,7 @@ func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign
 		data = data[end:]
 	}
 
-	data, err = p.response(code)
+	data, _, err = p.response(code)
 	if err != nil {
 		return nil, err
 	}
