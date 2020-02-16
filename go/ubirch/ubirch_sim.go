@@ -1,8 +1,6 @@
 package ubirch
 
 import (
-	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
@@ -63,7 +61,7 @@ const (
 	stkAppCertGet          = "80CC%02X0000"     // Get Certificate
 )
 
-// encode Tags into binary format (1 byte tag + 1 byte len + len bytes data)
+// encode Tags into binary format
 func (p *Protocol) encodeBinary(tags []Tag) []byte {
 	var encoded []byte
 	for _, tag := range tags {
@@ -72,24 +70,16 @@ func (p *Protocol) encodeBinary(tags []Tag) []byte {
 		}
 
 		encoded = append(encoded, tag.Tag)
-
-		// TODO this can be done better, but works for now
-		buffer := new(bytes.Buffer)
 		length := len(tag.Data)
 		if length <= 0xff {
-			err := binary.Write(buffer, binary.BigEndian, int8(len(tag.Data)))
-			if err != nil {
-				fmt.Println("binary.Write failed:", err)
-			}
-		} else if length <= 0xffff {
-			err := binary.Write(buffer, binary.BigEndian, int16(len(tag.Data)))
-			if err != nil {
-				fmt.Println("binary.Write failed:", err)
-			}
-			encoded = append(encoded, 0x82)
+			encoded = append(encoded, byte(length))
+		} else {
+			buf := make([]byte, 2)
+			buf[0] = byte(length >> 8)
+			buf[1] = byte(length)
+			encoded = append(encoded, 0x82) // 0x82 indicates the length of the tag data being 2 bytes long
+			encoded = append(encoded, buf...)
 		}
-
-		encoded = append(encoded, buffer.Bytes()...)
 		encoded = append(encoded, tag.Data...)
 	}
 	return encoded
@@ -446,7 +436,7 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 		if tag.Tag == 0xc3 {
 			// return the public key and remove the static 0xc4 from the beginning
 			return tag.Data[1:], nil
-		} // TODO check if this is working
+		}
 	}
 	return nil, errors.New("did not find public key entry, no tag 0xc3")
 }
