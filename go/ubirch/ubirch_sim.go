@@ -58,6 +58,7 @@ const (
 	stkAppCsrGenerateFirst = "80BA8000%02X%s"   // Generate Certificate Sign Request command ([1], 2.1.8)
 	stkAppCsrGenerateNext  = "80BA8100%02X"     // Get Certificate Sign Request response ([1], 2.1.8)
 	stkAppCertStore        = "80E3%02X00%02X%s" // Store Certificate
+	stkAppCertUpdate       = "80E7%02X00%02X%s" // Update Certificate
 	stkAppCertGet          = "80CC%02X0000"     // Get Certificate
 )
 
@@ -320,6 +321,7 @@ func (p *Protocol) GenerateCSR(name string, uid uuid.UUID) ([]byte, error) {
 	return hex.DecodeString(data)
 }
 
+// Store a X.509 certificate in the secure storage of the SIM
 func (p *Protocol) StoreCertificate(name string, uid uuid.UUID, cert []byte) error {
 	uidBytes, err := uid.MarshalBinary()
 	if err != nil {
@@ -353,9 +355,44 @@ func (p *Protocol) StoreCertificate(name string, uid uuid.UUID, cert []byte) err
 	return nil
 }
 
-// TODO func (p *Protocol) UpdateCertificate(name string, uid uuid.UUID, cert []byte) error {}
+func (p *Protocol) UpdateCertificate(name string, newCert []byte) error {
+	args := p.encode([]Tag{
+		{0xC3, newCert},
+	})
 
-// Get the X509 certificate for a given name from the SIM storage.
+	// select SS entry
+	name += "_c" // TODO use actual entry ID for certificate
+	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
+	if err != nil {
+		return err
+	}
+	_, code, _ = p.response(code)
+	if code != ApduOk {
+		log.Printf("selecting SS entry (%s) failed", name)
+		return errors.New(fmt.Sprintf("APDU error: %x", code))
+	}
+
+	for finalBit := 0; len(args) > 0; {
+		maxChunkSize := 0xFF * 2
+		end := maxChunkSize
+		if len(args) < maxChunkSize {
+			finalBit = 1 << 7
+			end = len(args)
+		}
+		chunk := args[:end]
+		_, code, err := p.execute(stkAppCertUpdate, finalBit, len(chunk)/2, chunk)
+		if err != nil {
+			return err
+		}
+		if code != ApduOk {
+			return errors.New(fmt.Sprintf("APDU error: %x", code))
+		}
+		args = args[end:]
+	}
+	return nil
+}
+
+// Get the X.509 certificate for a given name from the SIM storage.
 // Returns a byte array with the raw bytes of the certificate.
 func (p *Protocol) GetCertificate(name string) ([]byte, error) {
 	// select SS entry
