@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/base64"
-	//"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"github.com/google/uuid"
@@ -61,11 +60,29 @@ func main() {
 		log.Fatalf("initialization failed: %v", err)
 	}
 
+	//// try to erase all generated keys (fails due to setting on some cards)
+	//err = sim.DeleteAll()
+	//if err != nil {
+	//	log.Print(err)
+	//}
+
+	// generate random data
+	data, err := sim.Random(5)
+	if err != nil {
+		log.Print(err)
+	}
+	log.Printf("random data: %s", hex.EncodeToString(data))
+
 	uuidBytes, _ := hex.DecodeString(conf.Uuid)
 	uid, err := uuid.FromBytes(uuidBytes)
 	log.Printf("UUID: %v", uid)
 
 	name := "Q"
+	//// generate a key
+	//err = sim.GenerateKey(name, uid)
+	//if err != nil {
+	//	log.Printf("key may already exist: %v", err)
+	//}
 
 	//csr, err := sim.GenerateCSR(name, uid)
 	//if err != nil {
@@ -80,7 +97,7 @@ func main() {
 	//	log.Fatalf("can't read certificate from file")
 	//}
 	//certBytes, err := hex.DecodeString(string(cert))
-	//
+
 	//// store certificate in SIM card
 	//err = sim.StoreCertificate(name, uid, certBytes)
 	//if err != nil {
@@ -89,13 +106,21 @@ func main() {
 	//	log.Println("certificate stored")
 	//}
 
-	// get X.509 certificate from SIM card
-	simCert, err := sim.GetCertificate(name)
-	if err != nil {
-		log.Fatalf("retrieving certificate from SIM failed. %s", err)
-	} else {
-		log.Printf("retrieved certificate from SIM: %x", simCert)
-	}
+	//// update certificate
+	//err = sim.UpdateCertificate(name, certBytes)
+	//if err != nil {
+	//	log.Fatalf("can't update certificate on SIM")
+	//} else {
+	//	log.Println("updated certificate on SIM")
+	//}
+
+	//// get X.509 certificate from SIM card
+	//simCert, err := sim.GetCertificate(name)
+	//if err != nil {
+	//	log.Fatalf("retrieving certificate from SIM failed. %s", err)
+	//} else {
+	//	log.Printf("retrieved certificate from SIM: %x", simCert)
+	//}
 
 	//// register public key using certificate from SIM
 	//statusCode, respBody, err := post(simCert, conf.KeyService, map[string]string{"Content-Type": "application/json"})

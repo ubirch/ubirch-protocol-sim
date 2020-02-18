@@ -372,6 +372,7 @@ func (p *Protocol) UpdateCertificate(name string, newCert []byte) error {
 		return errors.New(fmt.Sprintf("APDU error: %x", code))
 	}
 
+	// update certificate
 	for finalBit := 0; len(args) > 0; {
 		maxChunkSize := 0xFF * 2
 		end := maxChunkSize
