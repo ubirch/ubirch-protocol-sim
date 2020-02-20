@@ -41,7 +41,7 @@ STK_MD = '6310'  # more data, repeat finishing
 STK_GET_RESPONSE = '00C00000{:02X}'  # get a pending response
 STK_AUTH_PIN = '00200000{:02X}{}'  # authenticate with pin
 
-# generica app commands
+# generic app commands
 STK_APP_SELECT = '00A4040010{}'  # APDU Select Application
 STK_APP_RANDOM = '80B900{:02X}00'  # APDU Generate Secure Random ([1], 4.2.7, page 50)
 STK_APP_DELETE_ALL = '80E50000'  # APDU Delete All SS Entries ([1], 4.1.7, page 30)
@@ -102,11 +102,14 @@ class Protocol:
         r = ""
         for (tag, data) in tags:
             if isinstance(data, bytes):
-                r += "{0:02X}{1:02X}{2}".format(tag, len(data), binascii.hexlify(data).decode())
-            elif isinstance(data, str):
-                r += "{0:02X}{1:02X}{2}".format(tag, int(len(data) / 2), data)
-            else:
-                raise Exception("tag data must be bytes or str")
+                # convert bytes into string representation
+                data = binascii.hexlify(data).decode()
+
+            data_len = int(len(data) / 2)
+            if data_len > 0xff:
+                data_len = (0x82 << 16) | data_len
+
+            r += "{0:02X}{1:02X}{2}".format(tag, data_len, data)
         return r
 
     def _decode_tag(self, value: bytes) -> [(int, bytes)]:
