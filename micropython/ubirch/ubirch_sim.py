@@ -39,24 +39,28 @@ STK_MD = '6310'  # more data, repeat finishing
 
 # SIM toolkit commands 
 STK_GET_RESPONSE = '00C00000{:02X}'  # get a pending response
-STK_AUTH_PIN = '00200000{:02X}{}'  # authenticate with pin
+STK_AUTH_PIN = '00200000{:02X}{}'  # authenticate with pin ([1], 2.1.2)
 
 # generic app commands
-STK_APP_SELECT = '00A4040010{}'  # APDU Select Application
-STK_APP_RANDOM = '80B900{:02X}00'  # APDU Generate Secure Random ([1], 4.2.7, page 50)
-STK_APP_DELETE_ALL = '80E50000'  # APDU Delete All SS Entries ([1], 4.1.7, page 30)
-STK_APP_SS_SELECT = '80A50000{:02X}{}'  # APDU Select SS Entry ([1], 4.1.2, page 25)
+STK_APP_SELECT = '00A4040010{}'  # APDU Select Application ([1], 2.1.1)
+STK_APP_RANDOM = '80B900{:02X}00'  # APDU Generate Secure Random ([1], 2.1.3)
+STK_APP_SS_SELECT = '80A50000{:02X}{}'  # APDU Select SS Entry ([1], 2.1.4)
+STK_APP_DELETE_ALL = '80E50000'  # APDU Delete All SS Entries
 
-# ubirch ubirch specific commands
-STK_APP_KEY_GENERATE = '80B28000{:02X}{}'  # APDU Generate Key Pair
-STK_APP_KEY_GET = '80CB0000{:02X}{}'  # APDU Get Key
-STK_APP_SIGN_INIT = '80B5{:02X}00{:02X}{}'  # APDU Sign Init command ([1], page 14)
-STK_APP_SIGN_FINAL = '80B6{:02X}00{:02X}{}'  # APDU Sign Update/Final command ([1], page 15)
-STK_APP_VERIFY_INIT = '80B7{:02X}00{:02X}{}'  # APDU Verify Signature Init ([1], page 11)
-STK_APP_VERIFY_FINAL = '80B8{:02X}00{:02X}{}'  # APDU Verify Signature Update/Final ([1], page 12)
+# ubirch specific commands
+STK_APP_KEY_GENERATE = '80B28000{:02X}{}'  # APDU Generate Key Pair ([1], 2.1.7)
+STK_APP_KEY_GET = '80CB0000{:02X}{}'  # APDU Get Key ([1], 2.1.9)
+STK_APP_SIGN_INIT = '80B5{:02X}00{:02X}{}'  # APDU Sign Init command ([1], 2.2.1)
+STK_APP_SIGN_FINAL = '80B6{:02X}00{:02X}{}'  # APDU Sign Update/Final command ([1], 2.2.2)
+STK_APP_VERIFY_INIT = '80B7{:02X}00{:02X}{}'  # APDU Verify Signature Init ([1], 2.2.3)
+STK_APP_VERIFY_FINAL = '80B8{:02X}00{:02X}{}'  # APDU Verify Signature Update/Final ([1], 2.2.4)
 
 # certificate management
-STK_APP_CSR_GENERATE = '80BA{:02X}00{:02X}{}'  # Generate Certificate Sign Request command ([1], page 5)
+STK_APP_CSR_GENERATE_FIRST = '80BA8000{:02X}{}'  # Generate Certificate Sign Request command ([1], 2.1.8)
+STK_APP_CSR_GENERATE_NEXT = '80BA8100{:02X}'  # Get Certificate Sign Request response ([1], 2.1.8)
+STK_APP_CERT_STORE = '80E3{:02X}00{:02X}{}'  # Store Certificate
+STK_APP_CERT_UPDATE = '80E7{:02X}00{:02X}{}'  # Update Certificate
+STK_APP_CERT_GET = '80CC{:02X}0000'  # Get Certificate
 
 APP_UBIRCH_SIGNED = 0x22
 APP_UBIRCH_CHAINED = 0x23
@@ -131,7 +135,7 @@ class Protocol:
                 raise Exception("tag %02x has not enough data %d < %d".format(tag, len(encoded[idx:]), data_len))
             endIdx = idx + data_len
             data = encoded[idx:endIdx]
-            decoded.append(tuple(tag, data))
+            decoded.append(tuple((tag, data)))
             idx = endIdx
         return decoded
 
