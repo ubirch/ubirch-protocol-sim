@@ -96,13 +96,13 @@ class Protocol:
     def _encode_tag(self, tags: [(int, bytes or str)]) -> str:
         """
         Encode taged arguments for APDU commands.
-        :param tags: a list of tuples of the format (tag, value) where value may be bytes or a pre-encoded str
+        :param tags: a list of tuples of the format (tag, data) where data may be bytes or a pre-encoded str
         :return: a hex encoded string, for use with the APDU
         """
         r = ""
         for (tag, data) in tags:
             if isinstance(data, bytes):
-                # convert bytes into string representation
+                # convert bytes into hex encoded string
                 data = binascii.hexlify(data).decode()
 
             data_len = int(len(data) / 2)
@@ -112,17 +112,26 @@ class Protocol:
             r += "{0:02X}{1:02X}{2}".format(tag, data_len, data)
         return r
 
-    def _decode_tag(self, value: bytes) -> [(int, bytes)]:
+    def _decode_tag(self, encoded: bytes) -> [(int, bytes)]:
         """
         Decode APDU response data that contains tags.
-        :param value: the response data with tags to decode
-        :return: (tag, value, end index)
+        :param encoded: the response data with tags to decode
+        :return: (tag, data)
         """
         decoded = []
         idx = 0
-        while idx < len(value):
-            endIdx = idx + int(value[idx + 1]) + 2
-            decoded.append(tuple((value[idx], value[idx + 2:endIdx])))
+        while idx < len(encoded):
+            tag = encoded[idx]
+            data_len = int(encoded[idx + 1])
+            idx += 2
+            if data_len == 0x82:  # 0x82 indicates the length of the tag data being 2 bytes long
+                data_len = int(encoded[idx]) << 8 | int(encoded[idx + 1])
+                idx += 2
+            if len(encoded[idx:]) < data_len:
+                raise Exception("tag %02x has not enough data %d < %d".format(tag, len(encoded[idx:]), data_len))
+            endIdx = idx + data_len
+            data = encoded[idx:endIdx]
+            decoded.append(tuple(tag, data))
             idx = endIdx
         return decoded
 
