@@ -180,6 +180,17 @@ func (p *Protocol) response(code uint16) (string, uint16, error) {
 	return data, code, nil
 }
 
+func (p *Protocol) GetIMSI() (string, error) {
+	imsi, err := p.Send("AT+CIMI")
+	if err != nil {
+		return "", err
+	}
+	if imsi[0] == "ERROR" {
+		return "", errors.New("no IMSI available")
+	}
+	return imsi[0], nil
+}
+
 func (p *Protocol) selectApplet() error {
 	if p.Debug {
 		log.Println("SIM applet select")

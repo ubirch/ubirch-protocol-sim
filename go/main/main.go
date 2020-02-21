@@ -54,6 +54,12 @@ func main() {
 	}
 	sim := ubirch.Protocol{SimInterface: &serialPort, Debug: true}
 
+	imsi, err := sim.GetIMSI()
+	if err != nil {
+		log.Fatalf("getting IMSI failed: %v", err)
+	}
+	log.Println(imsi)
+
 	// initialize the ubirch protocol sim interface
 	err = sim.Init(conf.Sim.Pin)
 	if err != nil {
