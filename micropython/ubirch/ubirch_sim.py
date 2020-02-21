@@ -25,6 +25,7 @@
 """
 
 import time
+from uuid import UUID
 
 import ubinascii as binascii
 from network import LTE
@@ -139,9 +140,9 @@ class Protocol:
             idx = endIdx
         return decoded
 
-    def _execute(self, cmd: str) -> (bytes, str):
+    def _execute_simple(self, cmd: str) -> (bytes, str):
         """
-        Execute an APDU command on the SIM card itself.
+        Execute an APDU command on the SIM card itself. This expects the command to completely fit into one line.
         :param cmd: the command to execute
         :return: a tuple of (data, code)
         """
@@ -149,13 +150,44 @@ class Protocol:
         if self.DEBUG: print("++ " + atcmd)
         result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
         if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
+        return result
+
+    def _execute(self, cmd: str) -> (bytes, str):
+        """
+        Execute an APDU command on the SIM card itself.
+        :param cmd: the command to execute
+        :return: a tuple of (data, code)
+        """
+        MAX = 127
+        if len(cmd) > MAX - 1:
+            end_idx = MAX - len('AT+CSIM={},"'.format(len(cmd)))
+            atcmd = 'AT+CSIM={},"{}'.format(len(cmd), cmd[:end_idx].upper())
+            if self.DEBUG: print("+++ " + atcmd)
+            self.lte.send_at_cmd(atcmd, delay=10)
+            # result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
+            # if self.DEBUG: print('--- ' + '\r\n--- '.join([r for r in result]))
+
+            while len(cmd[end_idx:]) > MAX - 1:
+                atcmd = cmd[end_idx:end_idx + MAX].upper()
+                end_idx += MAX
+                if self.DEBUG: print("+++ " + atcmd)
+                self.lte.send_at_cmd(atcmd, delay=0)
+                # result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
+                # if self.DEBUG: print('--- ' + '\r\n--- '.join([r for r in result]))
+
+            atcmd = '{}"'.format(cmd[end_idx:].upper())
+            if self.DEBUG: print("+++ " + atcmd)
+            result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
+            if self.DEBUG: print('--- ' + '\r\n--- '.join([r for r in result]))
+        else:
+            result = self._execute_simple(cmd)
 
         if result[-1] == 'OK':
-            result = result[0][7:].split(',')[1]
+            response = result[0][7:].split(',')[1]
             data = b''
-            code = result[-4:]
-            if len(result) > 2:
-                data = binascii.unhexlify(result[0:-4])
+            code = response[-4:]
+            if len(response) > 4:
+                data = binascii.unhexlify(response[0:-4])
             return data, code
         else:
             return [], result[-1]
@@ -171,7 +203,7 @@ class Protocol:
             if code == STK_OK:
                 return data, code
             elif code == STK_MD:
-                (data2, code) = self._execute(STK_APP_SIGN_FINAL.format(0x81, 0, ""))
+                (data2, code) = self._execute(STK_APP_SIGN_FINAL.format(0x81, 0, ""))  # TODO why STK_APP_SIGN_FINAL ?
                 if code == STK_OK:
                     return (data + data2), code
             raise Exception(code)
@@ -217,42 +249,52 @@ class Protocol:
         Delete all existing secure memory entries.
         """
         self.lte.pppsuspend()
-        (data, code) = self._execute("80E50000")
+        (data, code) = self._execute(STK_APP_DELETE_ALL)
         (data, code) = self._get_response(code)
         self.lte.pppresume()
 
         return data, code
 
-    def get_csr(self, entry_id: str) -> bytes:
+    def generate_csr(self, entry_id: str, uuid: UUID) -> bytes:
         """
         [WIP] Request a CSR from one of the selected key.
         :param entry_id: the key entry_id
+        :param uuid: the csr subject uuid
         :return: the CSR
         """
+        cert_attr = self._encode_tag([
+            (0xD4, "DE".encode()),
+            (0xD5, "Berlin".encode()),
+            (0xD6, "Berlin".encode()),
+            (0xD7, "ubirch GmbH".encode()),
+            (0xD8, "Security".encode()),
+            (0xD9, str(uuid).encode()),
+            (0xDA, "info@ubirch.com".encode())
+        ])
+        cert_args = self._encode_tag([
+            (0xD3, bytes([0x00])),
+            (0xE7, cert_attr),
+            (0xC2, bytes([0x0B, 0x01, 0x00])),
+            (0xD0, bytes([0x21]))
+        ])
+        args = self._encode_tag([
+            (0xC4, ("_" + entry_id).encode()),
+            (0xC4, entry_id.encode()),
+            (0xE5, cert_args)
+        ])
+
         self.lte.pppsuspend()
-        (data, code) = self._execute(
-            STK_APP_SS_SELECT.format(len("_" + entry_id), binascii.hexlify("_" + entry_id).decode()))
-        (data, code) = self._get_response(code)
-        if code == STK_OK:
-            # tags = [(tag, value.decode()) for (tag,value) in ]
-            if self.DEBUG: print('Found entry_id: ' + repr(self._decode_tag(data)))
-            cert_args = self._encode_tag([
-                (0xD3, bytes([0x00])),
-                (0xE7, bytes()),
-                (0xC2, bytes([0x0B, 0x01, 0x00])),
-                (0xD0, bytes([0x21]))
-            ])
-            args = self._encode_tag([
-                (0xC4, str.encode(entry_id)),
-                (0xE5, cert_args)
-            ])
-            (data, code) = self._execute(STK_APP_CSR_GENERATE.format(0x80, int(len(args) / 2), args))
-            (data, code) = self._get_response(code)
-            self.lte.pppresume()
-            return data
+        (data, code) = self._execute(STK_APP_CSR_GENERATE_FIRST.format(int(len(args) / 2), args))
+        if code != 0x6100:
+            raise Exception(code)
+
+        (data, code) = self._execute(STK_GET_RESPONSE.format(0))  # get first part of CSR
+        while code == STK_MD:
+            (moreData, code) = self._execute(STK_APP_CSR_GENERATE_NEXT.format(0))  # get next part of CSR
+            data += moreData
 
         self.lte.pppresume()
-        raise Exception(code)
+        return data
 
     def key_get(self, entry_id: str) -> [(int, bytes)]:
         """
