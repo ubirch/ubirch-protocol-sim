@@ -60,8 +60,13 @@ func main() {
 	}
 	log.Println(imsi)
 
+	PIN, err := bootstrap(imsi, conf.BootstrapService, conf.Password)
+	if err != nil {
+		log.Fatalf("bootstrapping failed: %v", err)
+	}
+
 	// initialize the ubirch protocol sim interface
-	err = sim.Init(conf.Sim.Pin)
+	err = sim.Init(PIN)
 	if err != nil {
 		log.Fatalf("initialization failed: %v", err)
 	}

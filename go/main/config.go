@@ -20,11 +20,12 @@ type Config struct {
 		Key string // authentication token
 		Upp string // authentication token
 	}
-	Password      string `json:"password"`   // password for the ubirch backend	(mandatory)
-	KeyService    string `json:"keyService"` // key service URL					(optional)
-	Niomon        string `json:"niomon"`     // authentication service URL		(optional)
-	DataService   string `json:"data"`       // data service URL				(optional)
-	VerifyService string `json:"verify"`     // verification service URL		(optional)
+	Password         string `json:"password"`   // password for the ubirch backend	(mandatory)
+	KeyService       string `json:"keyService"` // key service URL					(optional)
+	Niomon           string `json:"niomon"`     // authentication service URL		(optional)
+	DataService      string `json:"data"`       // data service URL					(optional)
+	VerifyService    string `json:"verify"`     // verification service URL			(optional)
+	BootstrapService string `json:"boot"`       // bootstrap service URL			(optional) TODO
 }
 
 // load the config file
@@ -72,6 +73,9 @@ func (c *Config) load(fn string) error {
 	}
 	if c.VerifyService == "" {
 		c.VerifyService = fmt.Sprintf("https://verify.%s.ubirch.com/api/upp", c.env)
+	}
+	if c.BootstrapService == "" {
+		c.BootstrapService = fmt.Sprintf("https://key.%s.ubirch.com/ubirch-web-ui/api/v1/devices/bootstrap/json", c.env)
 	}
 
 	return nil
