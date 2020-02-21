@@ -55,17 +55,32 @@ const (
 	stkAppVerifyFinal = "80B8%02X00%02X%s" // APDU Verify Signature Update/Final ([1], 2.2.4)
 
 	// Certificate management
-	stkAppCsrGenerate = "80BA%02X00%02X%s" // Generate Certificate Sign Request command ([1], 2.1.8)
+	stkAppCsrGenerateFirst = "80BA8000%02X%s"   // Generate Certificate Sign Request command ([1], 2.1.8)
+	stkAppCsrGenerateNext  = "80BA8100%02X"     // Get Certificate Sign Request response ([1], 2.1.8)
+	stkAppCertStore        = "80E3%02X00%02X%s" // Store Certificate
+	stkAppCertUpdate       = "80E7%02X00%02X%s" // Update Certificate
+	stkAppCertGet          = "80CC%02X0000"     // Get Certificate
 )
 
-// encode Tags into binary format (1 byte tag + 1 byte len + len bytes data)
+// encode Tags into binary format
 func (p *Protocol) encodeBinary(tags []Tag) []byte {
 	var encoded []byte
 	for _, tag := range tags {
 		if p.Debug {
-			log.Printf("ENC tag=0x%02x, len=%3d, data=%s [%q]\n", tag.Tag, len(tag.Data), hex.EncodeToString(tag.Data), tag.Data)
+			log.Printf("ENC tag=0x%02x, len=%3d [%02x], data=%s [%q]\n", tag.Tag, len(tag.Data), len(tag.Data), hex.EncodeToString(tag.Data), tag.Data)
 		}
-		encoded = append(encoded, tag.Tag, byte(len(tag.Data)))
+
+		encoded = append(encoded, tag.Tag)
+		length := len(tag.Data)
+		if length <= 0xff {
+			encoded = append(encoded, byte(length))
+		} else {
+			buf := make([]byte, 2)
+			buf[0] = byte(length >> 8)
+			buf[1] = byte(length)
+			encoded = append(encoded, 0x82) // 0x82 indicates the length of the tag data being 2 bytes long
+			encoded = append(encoded, buf...)
+		}
 		encoded = append(encoded, tag.Data...)
 	}
 	return encoded
@@ -86,11 +101,15 @@ func (p *Protocol) decodeBinary(bin []byte) ([]Tag, error) {
 		}
 		tag := bin[i]
 		tagLen = int(bin[i+1])
+		if tagLen == 0x82 { // 0x82 indicates the length of the tag data being 2 bytes long
+			tagLen = int(bin[i+2])<<8 | int(bin[i+3])
+			i += 2
+		}
 		if len(bin[i+2:]) < tagLen {
 			return nil, errors.New(fmt.Sprintf("tag %02x has not enough data %d < %d", tag, len(bin[i+2:]), tagLen))
 		}
 		if p.Debug {
-			log.Printf("DEC tag=0x%02x, len=%3d [%02x], data=%s [%q]\n", tag, tagLen, bin[i+1], hex.EncodeToString(bin[i+2:i+2+tagLen]), bin[i+2:i+2+tagLen])
+			log.Printf("DEC tag=0x%02x, len=%3d [%02x], data=%s [%q]\n", tag, tagLen, tagLen, hex.EncodeToString(bin[i+2:i+2+tagLen]), bin[i+2:i+2+tagLen])
 		}
 		tags = append(tags, Tag{tag, bin[i+2 : i+2+tagLen]})
 	}
@@ -143,20 +162,22 @@ func (p *Protocol) execute(format string, v ...interface{}) (string, uint16, err
 }
 
 // retrieve an extended response by executing the get response APDU command
-func (p *Protocol) response(code uint16) (string, error) {
+func (p *Protocol) response(code uint16) (string, uint16, error) {
 	c := code >> 8   // first byte -> response code: 0x61 or 0x63 indicate that there is more data available
 	l := code & 0xff // second byte -> length of available data
 	data := ""
 	for c == 0x61 || c == 0x63 { // check if more data available
-		r, code, err := p.execute(stkGetResponse, l) // request available data
+		r := ""
+		var err error                               // avoid shadowing of 'code'
+		r, code, err = p.execute(stkGetResponse, l) // request available data
 		if err != nil {
-			return "", err
+			return "", 0, err
 		}
 		c = code >> 8
 		l = code & 0xff
 		data += r
 	}
-	return data, nil
+	return data, code, nil
 }
 
 func (p *Protocol) selectApplet() error {
@@ -250,14 +271,14 @@ func (p *Protocol) GenerateKey(name string, uid uuid.UUID) error {
 	return err
 }
 
-func (p *Protocol) GetCSR(name string) ([]byte, error) {
+func (p *Protocol) GenerateCSR(name string, uid uuid.UUID) ([]byte, error) {
 	certAttributes := p.encodeBinary([]Tag{
 		{0xD4, []byte("DE")},
 		{0xD5, []byte("Berlin")},
 		{0xD6, []byte("Berlin")},
 		{0xD7, []byte("ubirch GmbH")},
 		{0xD8, []byte("Security")},
-		{0xD9, []byte("ubirch.com")},
+		{0xD9, []byte(uid.String())},
 		{0xDA, []byte("info@ubirch.com")},
 	})
 	certArgs := p.encodeBinary([]Tag{
@@ -268,12 +289,12 @@ func (p *Protocol) GetCSR(name string) ([]byte, error) {
 	})
 
 	args := p.encode([]Tag{
-		{0xC4, []byte(name)},       // Public Key ID of the key to be used as the Public Key carried in the CSR
-		{0xC4, []byte("_" + name)}, // Private Key ID of the key to be used for signing the CSR
+		{0xC4, []byte("_" + name)}, // Public Key ID of the key to be used as the Public Key carried in the CSR
+		{0xC4, []byte(name)},       // Private Key ID of the key to be used for signing the CSR
 		{0xE5, certArgs},           // Certification Request parameters
 	})
 
-	_, code, err := p.execute(stkAppCsrGenerate, 0x80, len(args)/2, args)
+	_, code, err := p.execute(stkAppCsrGenerateFirst, len(args)/2, args) // Generate CSR
 	if err != nil {
 		return nil, err
 	}
@@ -281,12 +302,142 @@ func (p *Protocol) GetCSR(name string) ([]byte, error) {
 		return nil, errors.New(fmt.Sprintf("unable to generate certificate signing request: 0x%x", code))
 	}
 
-	data, err := p.response(code)
+	data, code, err := p.execute(stkGetResponse, 0) // get first part of CSR
 	if err != nil {
 		return nil, err
 	}
 
+	for code == ApduMoreData {
+		moreData := ""
+		moreData, code, _ = p.execute(stkAppCsrGenerateNext, 0) // get next part of CSR (request wrong length)
+		c := code >> 8
+		l := code & 0xff
+		if c == 0x6C { // SIM returns code 6C (wrong length) followed by one byte indicating the actual length of data still available
+			moreData, code, _ = p.execute(stkAppCsrGenerateNext, l) // get next part of CSR (actual length)
+		}
+		data += moreData
+	}
+
 	return hex.DecodeString(data)
+}
+
+// Store a X.509 certificate in the secure storage of the SIM
+func (p *Protocol) StoreCertificate(name string, uid uuid.UUID, cert []byte) error {
+	uidBytes, err := uid.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	args := p.encode([]Tag{
+		{0xC4, []byte(name + "_c")}, // Entry ID
+		{0xC0, uidBytes},            // Entry title
+		{0xC1, []byte{0x03}},        // Permission: Read & Write Allowed
+		{0xC3, cert},                // Certificate
+	})
+
+	for finalBit := 0; len(args) > 0; {
+		maxChunkSize := 0xFF * 2
+		end := maxChunkSize
+		if len(args) < maxChunkSize {
+			finalBit = 1 << 7
+			end = len(args)
+		}
+		chunk := args[:end]
+		_, code, err := p.execute(stkAppCertStore, finalBit, len(chunk)/2, chunk)
+		if err != nil {
+			return err
+		}
+		if code != ApduOk {
+			return errors.New(fmt.Sprintf("APDU error: %x", code))
+		}
+		args = args[end:]
+	}
+	return nil
+}
+
+func (p *Protocol) UpdateCertificate(name string, newCert []byte) error {
+	args := p.encode([]Tag{
+		{0xC3, newCert},
+	})
+
+	// select SS entry
+	name += "_c" // TODO use actual entry ID for certificate
+	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
+	if err != nil {
+		return err
+	}
+	_, code, _ = p.response(code)
+	if code != ApduOk {
+		log.Printf("selecting SS entry (%s) failed", name)
+		return errors.New(fmt.Sprintf("APDU error: %x", code))
+	}
+
+	// update certificate
+	for finalBit := 0; len(args) > 0; {
+		maxChunkSize := 0xFF * 2
+		end := maxChunkSize
+		if len(args) < maxChunkSize {
+			finalBit = 1 << 7
+			end = len(args)
+		}
+		chunk := args[:end]
+		_, code, err := p.execute(stkAppCertUpdate, finalBit, len(chunk)/2, chunk)
+		if err != nil {
+			return err
+		}
+		if code != ApduOk {
+			return errors.New(fmt.Sprintf("APDU error: %x", code))
+		}
+		args = args[end:]
+	}
+	return nil
+}
+
+// Get the X.509 certificate for a given name from the SIM storage.
+// Returns a byte array with the raw bytes of the certificate.
+func (p *Protocol) GetCertificate(name string) ([]byte, error) {
+	// select SS entry
+	name += "_c" // TODO use actual entry ID for certificate
+	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
+	if err != nil {
+		return nil, err
+	}
+	_, code, _ = p.response(code)
+	if code != ApduOk {
+		log.Printf("selecting SS entry (%s) failed", name)
+		return nil, errors.New(fmt.Sprintf("APDU error: %x", code))
+	}
+
+	// get the certificate
+	data, code, err := p.execute(stkAppCertGet, 0)
+	if err != nil {
+		return nil, err
+	}
+	for code == ApduMoreData {
+		moreData := ""
+		moreData, code, err = p.execute(stkAppCertGet, 1)
+		if err != nil {
+			return nil, err
+		}
+		data += moreData
+	}
+	if code != ApduOk {
+		return nil, errors.New(fmt.Sprintf("APDU error: %x", code))
+	}
+
+	// extract the certificate from response tags
+	tags, err := p.decode(data)
+	if err != nil {
+		log.Printf("couldn't decode response tags! %s", data)
+		return nil, err
+	}
+	for _, tag := range tags {
+		if tag.Tag == 0xc3 {
+			// return the certificate
+			return tag.Data, nil
+		}
+	}
+	return nil, errors.New("did not find certificate in response, no tag 0xc3")
 }
 
 // Get the public key for a given name from the SIM storage.
@@ -298,7 +449,7 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, err = p.response(code)
+	_, _, err = p.response(code)
 	if err != nil {
 		return nil, err
 	}
@@ -310,10 +461,11 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 		return nil, err
 	}
 
-	data, err := p.response(code)
+	data, _, err := p.response(code)
 	if err != nil {
 		return nil, err
 	}
+
 	tags, err := p.decode(data)
 	if err != nil {
 		return nil, err
@@ -367,7 +519,7 @@ func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign
 		data = data[end:]
 	}
 
-	data, err = p.response(code)
+	data, _, err = p.response(code)
 	if err != nil {
 		return nil, err
 	}

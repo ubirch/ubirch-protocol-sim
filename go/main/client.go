@@ -2,10 +2,9 @@ package main
 
 import (
 	"bytes"
-	"encoding/asn1"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"github.com/google/uuid"
 	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
 	"io/ioutil"
@@ -40,67 +39,70 @@ func getSignedCertificate(p *ubirch.Protocol, name string, uid uuid.UUID) ([]byt
 	}
 	const timeFormat = "2006-01-02T15:04:05.000Z"
 
+	// get the key
 	pubKey, err := p.GetKey(name)
 	if err != nil {
 		return nil, err
 	}
 
 	pubKeyBase64 := base64.StdEncoding.EncodeToString(pubKey)
-	now := time.Now()
+
+	// put it all together
+	now := time.Now().UTC()
 	keyRegistration := KeyRegistration{
 		"ecdsa-p256v1",
 		now.Format(timeFormat),
 		uid.String(),
 		pubKeyBase64,
 		pubKeyBase64,
-		now.Add(time.Duration(24 * 365 * time.Hour)).Format(timeFormat),
+		now.Add(24 * 365 * time.Hour).Format(timeFormat),
 		now.Format(timeFormat),
 	}
+
+	// create string representation and sign it
 	jsonKeyReg, err := json.Marshal(keyRegistration)
 	if err != nil {
 		return nil, err
 	}
-	log.Print(string(jsonKeyReg))
 
-	signatureAsn1, err := p.Sign(name, jsonKeyReg, 0, false)
+	signature, err := p.Sign(name, jsonKeyReg, 0, false)
 	if err != nil {
 		return nil, err
 	}
-	signature := asn1.RawValue{}
-
-	_, err = asn1.Unmarshal(signatureAsn1, &signature)
-	if err != nil {
-		return nil, err
-	}
-	// The format of our DER string is 0x02 + rlen + r + 0x02 + slen + s
-	rLen := signature.Bytes[1] // The entire length of R + offset of 2 for 0x02 and rlen
-	r := signature.Bytes[2 : rLen+2]
-	// Ignore the next 0x02 and slen bytes and just take the start of S to the end of the byte array
-	s := signature.Bytes[rLen+4:]
 
 	return json.Marshal(SignedKeyRegistration{
 		keyRegistration,
-		base64.StdEncoding.EncodeToString(append(r, s...)),
+		base64.StdEncoding.EncodeToString(signature),
 	})
 }
 
-// post A http request to the backend service and
-func post(upp []byte, url string, auth string, headers map[string]string) ([]byte, error) {
+// post A http request to the backend service and return response code and body
+func post(upp []byte, url string, headers map[string]string) (int, []byte, error) {
+	// force HTTP/1.1 as HTTP/2 will break the headers on the server
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
+		},
+	}
+
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(upp))
 	if err != nil {
 		log.Printf("can't make new post request: %v", err)
-		return nil, err
-	} else {
-		for k, v := range headers {
-			req.Header.Set(k, v)
-		}
-		req.Header.Set("Authorization", fmt.Sprintf("Basic %s", auth))
-		resp, err := (&http.Client{}).Do(req)
-		if err != nil {
-			log.Printf("post failed; %v", err)
-		}
-		//noinspection GoUnhandledErrorResult
-		defer resp.Body.Close()
-		return ioutil.ReadAll(resp.Body)
+		return 0, nil, err
 	}
+
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("post failed; %v", err)
+		return 0, nil, err
+	}
+	//noinspection GoUnhandledErrorResult
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	return resp.StatusCode, body, err
 }
