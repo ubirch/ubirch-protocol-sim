@@ -140,18 +140,6 @@ class Protocol:
             idx = endIdx
         return decoded
 
-    def _execute_simple(self, cmd: str) -> (bytes, str):
-        """
-        Execute an APDU command on the SIM card itself. This expects the command to completely fit into one line.
-        :param cmd: the command to execute
-        :return: a tuple of (data, code)
-        """
-        atcmd = 'AT+CSIM={},"{}"'.format(len(cmd), cmd.upper())
-        if self.DEBUG: print("++ " + atcmd)
-        result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
-        if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
-        return result
-
     def _execute(self, cmd: str) -> (bytes, str):
         """
         Execute an APDU command on the SIM card itself.
@@ -159,28 +147,18 @@ class Protocol:
         :return: a tuple of (data, code)
         """
         MAX = 127
-        if len(cmd) > MAX - 1:
-            end_idx = MAX - len('AT+CSIM={},"'.format(len(cmd)))
-            atcmd = 'AT+CSIM={},"{}'.format(len(cmd), cmd[:end_idx].upper())
-            if self.DEBUG: print("+++ " + atcmd)
-            self.lte.send_at_cmd(atcmd)
-            # result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
-            # if self.DEBUG: print('--- ' + '\r\n--- '.join([r for r in result]))
+        at_cmd = 'AT+CSIM={},"{}"'.format(len(cmd), cmd.upper())
+        i = 0
+        while len(at_cmd[i:]) >= MAX:
+            at_cmd_chunk = at_cmd[i:i + MAX]
+            i += MAX
+            if self.DEBUG: print("+++ " + at_cmd_chunk)
+            self.lte.send_at_cmd(at_cmd_chunk)
 
-            while len(cmd[end_idx:]) > MAX - 1:
-                atcmd = cmd[end_idx:end_idx + MAX].upper()
-                end_idx += MAX
-                if self.DEBUG: print("+++ " + atcmd)
-                self.lte.send_at_cmd(atcmd)
-                # result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
-                # if self.DEBUG: print('--- ' + '\r\n--- '.join([r for r in result]))
-
-            atcmd = '{}"'.format(cmd[end_idx:].upper())
-            if self.DEBUG: print("+++ " + atcmd)
-            result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
-            if self.DEBUG: print('--- ' + '\r\n--- '.join([r for r in result]))
-        else:
-            result = self._execute_simple(cmd)
+        at_cmd_chunk = at_cmd[i:]
+        if self.DEBUG: print("++ " + at_cmd_chunk)
+        result = [k for k in self.lte.send_at_cmd(at_cmd_chunk).split('\r\n') if len(k.strip()) > 0]
+        if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
 
         if result[-1] == 'OK':
             response = result[0][7:].split(',')[1]
@@ -190,7 +168,7 @@ class Protocol:
                 data = binascii.unhexlify(response[0:-4])
             return data, code
         else:
-            return [], result[-1]
+            return b'', result[-1]
 
     def _get_response(self, code: str):
         """
