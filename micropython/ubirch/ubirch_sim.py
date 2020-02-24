@@ -163,7 +163,7 @@ class Protocol:
             end_idx = MAX - len('AT+CSIM={},"'.format(len(cmd)))
             atcmd = 'AT+CSIM={},"{}'.format(len(cmd), cmd[:end_idx].upper())
             if self.DEBUG: print("+++ " + atcmd)
-            self.lte.send_at_cmd(atcmd, delay=10)
+            self.lte.send_at_cmd(atcmd)
             # result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
             # if self.DEBUG: print('--- ' + '\r\n--- '.join([r for r in result]))
 
@@ -171,7 +171,7 @@ class Protocol:
                 atcmd = cmd[end_idx:end_idx + MAX].upper()
                 end_idx += MAX
                 if self.DEBUG: print("+++ " + atcmd)
-                self.lte.send_at_cmd(atcmd, delay=0)
+                self.lte.send_at_cmd(atcmd)
                 # result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
                 # if self.DEBUG: print('--- ' + '\r\n--- '.join([r for r in result]))
 

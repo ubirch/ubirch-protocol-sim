@@ -1,14 +1,13 @@
+import crypto
 import hashlib
 import json
-import time
-
-import crypto
 import machine
 import pycom
+import time
 import ubinascii as binascii
-from network import LTE
+from network import WLAN, LTE
 
-from helpers import nb_iot_attach, nb_iot_connect, set_time, get_certificate, register_key, post
+from helpers import wifi_connect, nb_iot_attach, nb_iot_connect, set_time, get_certificate, register_key, post
 from ubirch import Protocol
 from uuid import UUID
 
@@ -29,36 +28,43 @@ HEADERS = [
     'X-Ubirch-Auth-Type: ubirch'
 ]
 
-# TODO take this out if LTE works
+lte = LTE()
+
+# # TODO take this out if LTE works
 # # initialize wifi connection
 # wlan = WLAN(mode=WLAN.STA)
 # if not wifi_connect(wlan, config["wifi"]["ssid"], config["wifi"]["pass"]):
 #     print("ERROR: unable to connect to network. Resetting device...")
 #     time.sleep(5)
 #     machine.reset()
-
-# initialize NB-IoT connection
-lte = LTE()
-if not nb_iot_attach(lte, config["apn"]):
-    print("ERROR: unable to attach to network. Resetting device...")
-    time.sleep(5)
-    machine.reset()
-
-if not nb_iot_connect(lte):
-    print("ERROR: unable to connect to network. Resetting device...")
-    time.sleep(5)
-    machine.reset()
-
-if not set_time():
-    print("ERROR: unable to set time. Resetting device...")
-    time.sleep(5)
-    machine.reset()
+#
+# # initialize NB-IoT connection
+# # if not nb_iot_attach(lte, config["apn"]):
+# #     print("ERROR: unable to attach to network. Resetting device...")
+# #     time.sleep(5)
+# #     machine.reset()
+# #
+# # if not nb_iot_connect(lte):
+# #     print("ERROR: unable to connect to network. Resetting device...")
+# #     time.sleep(5)
+# #     machine.reset()
+#
+# if not set_time():
+#     print("ERROR: unable to set time. Resetting device...")
+#     time.sleep(5)
+#     machine.reset()
 
 # the pycom module restricts the size of SIM command lines, use only single character name!
-device_name = "A"
+device_name = "Q"  # fixme device_name = "A"
 
 # initialize the ubirch protocol interface
 ubirch = Protocol(lte=lte, pin=config["sim"]["pin"], at_debug=config["sim"]["debug"])
+csr = ubirch.generate_csr(device_name, device_uuid)
+print(csr)
+
+import sys
+
+sys.exit()
 
 # create a certificate for the device and register public key at ubirch key service
 csr = get_certificate(device_name, device_uuid, ubirch)
@@ -86,7 +92,7 @@ while True:
     pycom.rgbled(0x002200)  # LED green
     start_time = time.time()  # start timer
 
-    # get data and calculate hash over timestamp, uuid and data to ensure hash is unique
+    # get data and calculate hash of timestamp, UUID and data to ensure hash is unique
     payload_data = binascii.hexlify(crypto.getrandbits(32))
     unique_data = "{}{}{}".format(start_time, device_uuid, payload_data)
     data_hash = hashlib.sha256(unique_data).digest()
@@ -105,24 +111,24 @@ while True:
     print("UPP: {} ({})".format(binascii.hexlify(upp).decode(), len(upp)))
 
     # make sure device is still connected before sending data
-    # if not wlan.isconnected():
-    #     pycom.rgbled(0x440044)  # LED purple
-    #     print("!! lost connection, trying to reconnect ...")
-    #     if not wifi_connect(wlan, config["wifi"]["ssid"], config["wifi"]["pass"]):
-    #         print("ERROR: unable to connect to network. Resetting device...")
-    #         time.sleep(5)
-    #         machine.reset()
-    #     else:
-    #         pycom.rgbled(0x002200)  # LED green
-    if not lte.isconnected():
+    if not wlan.isconnected():
         pycom.rgbled(0x440044)  # LED purple
         print("!! lost connection, trying to reconnect ...")
-        if not nb_iot_connect(lte):
+        if not wifi_connect(wlan, config["wifi"]["ssid"], config["wifi"]["pass"]):
             print("ERROR: unable to connect to network. Resetting device...")
             time.sleep(5)
             machine.reset()
         else:
             pycom.rgbled(0x002200)  # LED green
+    # if not lte.isconnected():
+    #     pycom.rgbled(0x440044)  # LED purple
+    #     print("!! lost connection, trying to reconnect ...")
+    #     if not nb_iot_connect(lte):
+    #         print("ERROR: unable to connect to network. Resetting device...")
+    #         time.sleep(5)
+    #         machine.reset()
+    #     else:
+    #         pycom.rgbled(0x002200)  # LED green
 
     # # # # # # # # # # # # # # # # # # #
     # send message to your backend here #
@@ -137,7 +143,7 @@ while True:
         pycom.rgbled(0x440000)  # LED red
         time.sleep(3)
 
-    lte.disconnect()
+    # lte.disconnect()
 
     # wait for next interval
     passed_time = time.time() - start_time
