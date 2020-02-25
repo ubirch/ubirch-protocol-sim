@@ -10,15 +10,15 @@ import (
 
 // configuration file structure
 type Config struct {
-	env  string // ubirch environment
-	Uuid string // the device uuid to use
+	Env  string `json:"env"`  // ubirch environment
+	Uuid string `json:"uuid"` // the device uuid to use
 	Sim  struct {
-		Pin   string // SIM pin
-		Debug bool   // currently not used
+		Pin   string `json:"pin"`   // SIM pin
+		Debug bool   `json:"debug"` // enable extended debug output
 	}
 	Api struct { // TODO remove this part -> legacy
-		Key string // authentication token
-		Upp string // authentication token
+		Key string `json:"key"` // authentication token
+		Upp string `json:"upp"` // authentication token
 	}
 	Password         string `json:"password"`   // password for the ubirch backend	(mandatory)
 	KeyService       string `json:"keyService"` // key service URL					(optional)
@@ -50,32 +50,32 @@ func (c *Config) load(fn string) error {
 		}
 	}
 
-	if c.env == "" {
-		c.env = "prod"
+	if c.Env == "" {
+		c.Env = "prod"
 	}
 
 	if c.KeyService == "" {
-		c.KeyService = fmt.Sprintf("https://key.%s.ubirch.com/api/keyService/v1/pubkey", c.env)
+		c.KeyService = fmt.Sprintf("https://key.%s.ubirch.com/api/keyService/v1/pubkey", c.Env)
 	} else {
 		c.KeyService = strings.TrimSuffix(c.KeyService, "/mpack")
 	}
 
 	// now make sure the Env variable has the actual environment value that is used in the URL
-	c.env = strings.Split(c.KeyService, ".")[1]
+	c.Env = strings.Split(c.KeyService, ".")[1]
 
 	if c.Niomon == "" {
-		c.Niomon = fmt.Sprintf("https://niomon.%s.ubirch.com/", c.env)
+		c.Niomon = fmt.Sprintf("https://niomon.%s.ubirch.com/", c.Env)
 	}
 	if c.DataService == "" {
-		c.DataService = fmt.Sprintf("https://data.%s.ubirch.com/v1", c.env)
+		c.DataService = fmt.Sprintf("https://data.%s.ubirch.com/v1", c.Env)
 	} else {
 		c.DataService = strings.TrimSuffix(c.DataService, "/msgPack")
 	}
 	if c.VerifyService == "" {
-		c.VerifyService = fmt.Sprintf("https://verify.%s.ubirch.com/api/upp", c.env)
+		c.VerifyService = fmt.Sprintf("https://verify.%s.ubirch.com/api/upp", c.Env)
 	}
 	if c.BootstrapService == "" {
-		c.BootstrapService = fmt.Sprintf("https://key.%s.ubirch.com/ubirch-web-ui/api/v1/devices/bootstrap/json", c.env)
+		c.BootstrapService = fmt.Sprintf("https://key.%s.ubirch.com/ubirch-web-ui/api/v1/devices/bootstrap/json", c.Env)
 	}
 
 	return nil
