@@ -75,11 +75,11 @@ func (p *Protocol) encodeBinary(tags []Tag) []byte {
 		if length <= 0xff {
 			encoded = append(encoded, byte(length))
 		} else {
-			buf := make([]byte, 2)
-			buf[0] = byte(length >> 8)
-			buf[1] = byte(length)
-			encoded = append(encoded, 0x82) // 0x82 indicates the length of the tag data being 2 bytes long
-			encoded = append(encoded, buf...)
+			lenBuf := make([]byte, 3)
+			lenBuf[0] = byte(0x82) // 0x82 indicates the length of the tag data being 2 bytes long)
+			lenBuf[1] = byte(length >> 8)
+			lenBuf[2] = byte(length)
+			encoded = append(encoded, lenBuf...)
 		}
 		encoded = append(encoded, tag.Data...)
 	}
