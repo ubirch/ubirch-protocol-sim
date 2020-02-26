@@ -166,7 +166,10 @@ class Protocol:
         :param code: the code response from the previous operation.
         :return: a (data, code) tuple as a result of APDU GET RESPONSE
         """
-        raise Exception(code)
+        data = b''
+        if code[0:2] == '61':
+            (data, code) = self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))
+        return data, code
 
     def select(self):
         """
@@ -196,7 +199,7 @@ class Protocol:
         :param length: the number of random bytes to generate
         :return: a byte array containing the random bytes
         """
-        if self.DEBUG: print("generating random data with length " + length)
+        if self.DEBUG: print("generating random data with length " + str(length))
         self.lte.pppsuspend()
         (data, code) = self._execute(STK_APP_RANDOM.format(length))
         self.lte.pppresume()
@@ -246,14 +249,13 @@ class Protocol:
 
         self.lte.pppsuspend()
         (data, code) = self._execute(STK_APP_CSR_GENERATE_FIRST.format(int(len(args) / 2), args))
-        if code[0:2] == '61':
-            (data, code) = self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))  # get first part of CSR
-            while code == STK_MD:
-                (moreData, code) = self._execute(STK_APP_CSR_GENERATE_NEXT.format(0))  # get next part of CSR
-                data += moreData
-            if code == STK_OK:
-                self.lte.pppresume()
-                return data
+        (data, code) = self._get_response(code)  # get first part of CSR
+        while code == STK_MD:  # todo check if this can be a method
+            (moreData, code) = self._execute(STK_APP_CSR_GENERATE_NEXT.format(0))  # get next part of CSR
+            data += moreData
+        if code == STK_OK:
+            self.lte.pppresume()
+            return data
 
         self.lte.pppresume()
         raise Exception(code)
@@ -269,18 +271,17 @@ class Protocol:
         self.lte.pppsuspend()
         # select SS certificate entry
         (data, code) = self._execute(STK_APP_SS_SELECT.format(len(cert_id), binascii.hexlify(cert_id).decode()))
-        if code[0:2] == '61':
-            (data, code) = self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))
+        (data, code) = self._get_response(code)
+        if code == STK_OK:
+            if self.DEBUG: print('found entry ID: ' + repr(self._decode_tag(data)))
+            # get the certificate
+            (data, code) = self._execute(STK_APP_CERT_GET.format(0))
+            while code == STK_MD:
+                (moreData, code) = self._execute(STK_APP_CERT_GET.format(1))
+                data += moreData
             if code == STK_OK:
-                if self.DEBUG: print('found entry ID: ' + repr(self._decode_tag(data)))
-                # get certificate
-                (data, code) = self._execute(STK_APP_CERT_GET.format(0))
-                while code == STK_MD:
-                    (moreData, code) = self._execute(STK_APP_CERT_GET.format(1))
-                    data += moreData
-                if code == STK_OK:
-                    self.lte.pppresume()
-                    return [tag[1] for tag in self._decode_tag(data) if tag[0] == 0xc3][0]
+                self.lte.pppresume()
+                return [tag[1] for tag in self._decode_tag(data) if tag[0] == 0xc3][0]
 
         self.lte.pppresume()
         raise Exception(code)
@@ -296,19 +297,17 @@ class Protocol:
         self.lte.pppsuspend()
         # select SS public key entry
         (data, code) = self._execute(STK_APP_SS_SELECT.format(len(pubkey_id), binascii.hexlify(pubkey_id).decode()))
-        if code[0:2] == '61':
-            (data, code) = self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))
+        (data, code) = self._get_response(code)
+        if code == STK_OK:
+            if self.DEBUG: print('found entry ID: ' + repr(self._decode_tag(data)))
+            # get the key
+            args = self._encode_tag([(0xD0, bytes([0x00]))])
+            (data, code) = self._execute(STK_APP_KEY_GET.format(int(len(args) / 2), args))
+            (data, code) = self._get_response(code)
             if code == STK_OK:
-                if self.DEBUG: print('found entry ID: ' + repr(self._decode_tag(data)))
-                # get key
-                args = self._encode_tag([(0xD0, bytes([0x00]))])
-                (data, code) = self._execute(STK_APP_KEY_GET.format(int(len(args) / 2), args))
-                if code[0:2] == '61':
-                    (data, code) = self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))
-                    if code == STK_OK:
-                        self.lte.pppresume()
-                        # remove the fixed 0x04 prefix from the key entry_id
-                        return [tag[1][1:] for tag in self._decode_tag(data) if tag[0] == 0xc3][0]
+                self.lte.pppresume()
+                # remove the fixed 0x04 prefix from the key entry_id
+                return [tag[1][1:] for tag in self._decode_tag(data) if tag[0] == 0xc3][0]
 
         self.lte.pppresume()
         raise Exception(code)
@@ -365,11 +364,10 @@ class Protocol:
                 if code != STK_OK: break
             else:
                 (data, code) = self._execute(STK_APP_SIGN_FINAL.format(1 << 7, int(len(chunks[-1]) / 2), chunks[-1]))
-            if code[0:2] == '61':
-                (data, code) = self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))
-                if code == STK_OK:
-                    self.lte.pppresume()
-                    return data
+            (data, code) = self._get_response(code)
+            if code == STK_OK:
+                self.lte.pppresume()
+                return data
 
         self.lte.pppresume()
         raise Exception(code)
