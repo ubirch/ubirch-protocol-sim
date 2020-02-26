@@ -90,7 +90,7 @@ def get_certificate(device_id: str, device_uuid: UUID, proto: Protocol) -> str:
     created = not_before = TIME_FMT.format(now[0], now[1], now[2], now[3], now[4], now[5])
     later = time.localtime(time.mktime(now) + 30758400)
     not_after = TIME_FMT.format(later[0], later[1], later[2], later[3], later[4], later[5])
-    pub_base64 = binascii.b2a_base64(proto.key_get(device_id)).decode()[:-1]
+    pub_base64 = binascii.b2a_base64(proto.get_key(device_id)).decode()[:-1]
     # json must be compact and keys must be sorted alphabetically
     REG_TMPL = '{{"algorithm":"ecdsa-p256v1","created":"{}","hwDeviceId":"{}","pubKey":"{}","pubKeyId":"{}","validNotAfter":"{}","validNotBefore":"{}"}}'
     REG = REG_TMPL.format(created, str(device_uuid), pub_base64, pub_base64, not_after, not_before).encode()

@@ -171,6 +171,19 @@ class Protocol:
             (data, code) = self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))
         return data, code
 
+    def _get_more_data(self, code: str, data: bytes, cmd: str) -> (bytes, str):
+        while code == STK_MD:
+            (moreData, code) = self._execute(cmd)
+            data += moreData
+        return data, code
+
+    def _select_ss_entry(self, entry_id: str) -> str:
+        (data, code) = self._execute(STK_APP_SS_SELECT.format(len(entry_id), binascii.hexlify(entry_id).decode()))
+        (data, code) = self._get_response(code)
+        if code == STK_OK and self.DEBUG:
+            print('found entry ID: ' + repr(self._decode_tag(data)))
+        return code
+
     def select(self):
         """
         Select the SIM application to execute secure operations.
@@ -250,9 +263,7 @@ class Protocol:
         self.lte.pppsuspend()
         (data, code) = self._execute(STK_APP_CSR_GENERATE_FIRST.format(int(len(args) / 2), args))
         (data, code) = self._get_response(code)  # get first part of CSR
-        while code == STK_MD:  # todo check if this can be a method
-            (moreData, code) = self._execute(STK_APP_CSR_GENERATE_NEXT.format(0))  # get next part of CSR
-            data += moreData
+        (data, code) = self._get_more_data(code, data, STK_APP_CSR_GENERATE_NEXT.format(0))  # get next part of CSR
         if code == STK_OK:
             self.lte.pppresume()
             return data
@@ -270,15 +281,11 @@ class Protocol:
         cert_id = entry_id + "_c"
         self.lte.pppsuspend()
         # select SS certificate entry
-        (data, code) = self._execute(STK_APP_SS_SELECT.format(len(cert_id), binascii.hexlify(cert_id).decode()))
-        (data, code) = self._get_response(code)
+        code = self._select_ss_entry(cert_id)
         if code == STK_OK:
-            if self.DEBUG: print('found entry ID: ' + repr(self._decode_tag(data)))
             # get the certificate
             (data, code) = self._execute(STK_APP_CERT_GET.format(0))
-            while code == STK_MD:
-                (moreData, code) = self._execute(STK_APP_CERT_GET.format(1))
-                data += moreData
+            (data, code) = self._get_more_data(code, data, STK_APP_CERT_GET.format(1))
             if code == STK_OK:
                 self.lte.pppresume()
                 return [tag[1] for tag in self._decode_tag(data) if tag[0] == 0xc3][0]
@@ -286,7 +293,7 @@ class Protocol:
         self.lte.pppresume()
         raise Exception(code)
 
-    def key_get(self, entry_id: str) -> bytes:
+    def get_key(self, entry_id: str) -> bytes:
         """
         Retrieve the public key of a given entry_id.
         :param entry_id: the key to look for
@@ -296,10 +303,8 @@ class Protocol:
         pubkey_id = "_" + entry_id
         self.lte.pppsuspend()
         # select SS public key entry
-        (data, code) = self._execute(STK_APP_SS_SELECT.format(len(pubkey_id), binascii.hexlify(pubkey_id).decode()))
-        (data, code) = self._get_response(code)
+        code = self._select_ss_entry(pubkey_id)
         if code == STK_OK:
-            if self.DEBUG: print('found entry ID: ' + repr(self._decode_tag(data)))
             # get the key
             args = self._encode_tag([(0xD0, bytes([0x00]))])
             (data, code) = self._execute(STK_APP_KEY_GET.format(int(len(args) / 2), args))
@@ -312,7 +317,7 @@ class Protocol:
         self.lte.pppresume()
         raise Exception(code)
 
-    def key_generate(self, entry_id: str, entry_title: str) -> str:
+    def generate_key(self, entry_id: str, entry_title: str) -> str:
         """
         Generate a new key pair and store it on the SIM card using the entry_id and the entry_title.
         :param entry_id: the ID of the entry_id in the SIM cards secure storage area. (KEY_ID)

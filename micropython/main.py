@@ -82,7 +82,7 @@ except:
     machine.reset()
 
 # get public key of device
-public_key = ubirch.key_get(device_name)
+public_key = ubirch.get_key(device_name)
 print("** public key: {} ({})".format(binascii.hexlify(public_key).decode(), len(public_key)))
 
 interval = 30
