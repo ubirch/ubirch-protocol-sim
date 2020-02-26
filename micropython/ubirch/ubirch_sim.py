@@ -70,15 +70,13 @@ APP_UBIRCH_CHAINED = 0x23
 class Protocol:
     MAX_AT_LENGTH = 110
 
-    def __init__(self, lte: LTE, pin: str, at_debug: bool = False):
+    def __init__(self, lte: LTE, at_debug: bool = False):
         """
         Initialize the SIM interface. This executes a command to initialize the modem,
         puts it in minimal functional mode and waits for the modem to become ready,
-        then selects the SIM application and authenticates using the pin.
+        then selects the SIM application.
 
         The LTE functionality must be enabled upfront.
-
-        :param pin: pin to authenticate with
         """
         self.lte = lte
         self.DEBUG = at_debug
@@ -89,13 +87,19 @@ class Protocol:
         while not ("+CFUN: 1" in r or "+CFUN: 4" in r):
             time.sleep(1)
             r = self.lte.send_at_cmd("AT+CFUN?")
-        self.lte.pppresume()
 
-        # select the SignApp and check pin
-        self.select()
-        self.pin = pin
-        if not self.sim_auth(self.pin):
-            raise Exception("PIN not accepted")
+        # select the SignApp
+        code = self._select()
+        self.lte.pppresume()
+        if code != STK_OK:
+            raise Exception("selecting SIM application failed")
+
+    def _select(self) -> str:
+        """
+        Select the SIM application to execute secure operations.
+        """
+        (data, code) = self._execute(STK_APP_SELECT.format(APP_DF))
+        return code
 
     def _encode_tag(self, tags: [(int, bytes or str)]) -> str:
         """
@@ -196,13 +200,19 @@ class Protocol:
             print('found entry ID: ' + repr(self._decode_tag(data)))
         return code
 
-    def select(self):
+    def get_imsi(self) -> str:
         """
-        Select the SIM application to execute secure operations.
+        Get the international mobile subscriber identity (IMSI) from SIM
         """
         self.lte.pppsuspend()
-        self._execute(STK_APP_SELECT.format(APP_DF))
+        at_cmd = "AT+CIMI"
+        if self.DEBUG: print("++ " + at_cmd)
+        result = [k for k in self.lte.send_at_cmd(at_cmd).split('\r\n') if len(k.strip()) > 0]
+        if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
         self.lte.pppresume()
+        if result[-1] == 'OK':
+            return result[0]
+        raise Exception("no IMSI available")
 
     def sim_auth(self, pin: str) -> bool:
         """
@@ -279,11 +289,10 @@ class Protocol:
         (data, code) = self._execute(STK_APP_CSR_GENERATE_FIRST.format(int(len(args) / 2), args))
         (data, code) = self._get_response(code)  # get first part of CSR
         (data, code) = self._get_more_data(code, data, STK_APP_CSR_GENERATE_NEXT.format(0))  # get next part of CSR
+        self.lte.pppresume()
         if code == STK_OK:
-            self.lte.pppresume()
             return data
 
-        self.lte.pppresume()
         raise Exception(code)
 
     def get_certificate(self, entry_id: str) -> bytes:
