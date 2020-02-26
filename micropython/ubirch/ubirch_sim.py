@@ -68,8 +68,7 @@ APP_UBIRCH_CHAINED = 0x23
 
 
 class Protocol:
-    DEBUG = False
-    MAX_AT_LENGTH = 72
+    MAX_AT_LENGTH = 110
 
     def __init__(self, lte: LTE, pin: str, at_debug: bool = False):
         """
@@ -161,18 +160,12 @@ class Protocol:
         else:
             return b'', result[-1]
 
-    def _get_response(self, code: str):
+    def _get_response(self, code: str) -> (bytes, str):
         """
         Get response from the application.
         :param code: the code response from the previous operation.
         :return: a (data, code) tuple as a result of APDU GET RESPONSE
         """
-        response = ""
-        while code[0:2] == '61':
-            (data, code) = self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))
-            response += data
-            if code == STK_OK:
-                return response, code
         raise Exception(code)
 
     def select(self):
@@ -185,10 +178,11 @@ class Protocol:
 
     def sim_auth(self, pin: str) -> bool:
         """
-        Authenticate agains the SIM application to be able to use secure operations.
+        Authenticate against the SIM application to be able to use secure operations.
         :param pin: the pin to use for authentication
         :return: True if the operation was successful
         """
+        if self.DEBUG: print("authenticating with PIN " + pin)
         self.lte.pppsuspend()
         (data, code) = self._execute(STK_AUTH_PIN.format(len(pin), binascii.hexlify(pin).decode()))
         self.lte.pppresume()
@@ -202,6 +196,7 @@ class Protocol:
         :param length: the number of random bytes to generate
         :return: a byte array containing the random bytes
         """
+        if self.DEBUG: print("generating random data with length " + length)
         self.lte.pppsuspend()
         (data, code) = self._execute(STK_APP_RANDOM.format(length))
         self.lte.pppresume()
@@ -213,6 +208,7 @@ class Protocol:
         """
         Delete all existing secure memory entries.
         """
+        if self.DEBUG: print("erasing ALL SS entries")
         self.lte.pppsuspend()
         (data, code) = self._execute(STK_APP_DELETE_ALL)
         self.lte.pppresume()
@@ -221,11 +217,12 @@ class Protocol:
 
     def generate_csr(self, entry_id: str, uuid: UUID) -> bytes:
         """
-        [WIP] Request a CSR from one of the selected key.
+        [WIP] Request a CSR for the selected key.
         :param entry_id: the key entry_id
         :param uuid: the csr subject uuid
         :return: the CSR
         """
+        if self.DEBUG: print("generating CSR for key with entry ID " + entry_id)
         cert_attr = self._encode_tag([
             (0xD4, "DE".encode()),
             (0xD5, "Berlin".encode()),
@@ -249,36 +246,69 @@ class Protocol:
 
         self.lte.pppsuspend()
         (data, code) = self._execute(STK_APP_CSR_GENERATE_FIRST.format(int(len(args) / 2), args))
-        if code != 0x6100:
-            raise Exception(code)
-
-        (data, code) = self._execute(STK_GET_RESPONSE.format(0))  # get first part of CSR
-        while code == STK_MD:
-            (moreData, code) = self._execute(STK_APP_CSR_GENERATE_NEXT.format(0))  # get next part of CSR
-            data += moreData
+        if code[0:2] == '61':
+            (data, code) = self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))  # get first part of CSR
+            while code == STK_MD:
+                (moreData, code) = self._execute(STK_APP_CSR_GENERATE_NEXT.format(0))  # get next part of CSR
+                data += moreData
+            if code == STK_OK:
+                self.lte.pppresume()
+                return data
 
         self.lte.pppresume()
-        return data
+        raise Exception(code)
 
-    def key_get(self, entry_id: str) -> [(int, bytes)]:
+    def get_certificate(self, entry_id: str) -> bytes:
+        """
+        Retrieve the X.509 certificate for a key with given key entry_id
+        :param entry_id: the key entry ID of the corresponding key of the certificate
+        :return: the certificate bytes
+        """
+        if self.DEBUG: print("getting X.509 certificate for key with entry ID " + entry_id)
+        cert_id = entry_id + "_c"
+        self.lte.pppsuspend()
+        # select SS certificate entry
+        (data, code) = self._execute(STK_APP_SS_SELECT.format(len(cert_id), binascii.hexlify(cert_id).decode()))
+        if code[0:2] == '61':
+            (data, code) = self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))
+            if code == STK_OK:
+                if self.DEBUG: print('found entry ID: ' + repr(self._decode_tag(data)))
+                # get certificate
+                (data, code) = self._execute(STK_APP_CERT_GET.format(0))
+                while code == STK_MD:
+                    (moreData, code) = self._execute(STK_APP_CERT_GET.format(1))
+                    data += moreData
+                if code == STK_OK:
+                    self.lte.pppresume()
+                    return [tag[1] for tag in self._decode_tag(data) if tag[0] == 0xc3][0]
+
+        self.lte.pppresume()
+        raise Exception(code)
+
+    def key_get(self, entry_id: str) -> bytes:
         """
         Retrieve the public key of a given entry_id.
         :param entry_id: the key to look for
         :return: the public key bytes
         """
+        if self.DEBUG: print("getting public key with entry ID " + entry_id)
+        pubkey_id = "_" + entry_id
         self.lte.pppsuspend()
-        (data, code) = self._execute(
-            STK_APP_SS_SELECT.format(len("_" + entry_id), binascii.hexlify("_" + entry_id).decode()))
-        (data, code) = self._get_response(code)
-        if code == STK_OK:
-            # tags = [(tag, value.decode()) for (tag,value) in ]
-            if self.DEBUG: print('Found entry_id: ' + repr(self._decode_tag(data)))
-            args = self._encode_tag([(0xD0, bytes([0x00]))])
-            (data, code) = self._execute(STK_APP_KEY_GET.format(int(len(args) / 2), args))
-            (data, code) = self._get_response(code)
-            self.lte.pppresume()
-            # remove the fixed 0x04 prefix from the key entry_id
-            return [tag[1][1:] for tag in self._decode_tag(data) if tag[0] == 195][0]
+        # select SS public key entry
+        (data, code) = self._execute(STK_APP_SS_SELECT.format(len(pubkey_id), binascii.hexlify(pubkey_id).decode()))
+        if code[0:2] == '61':
+            (data, code) = self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))
+            if code == STK_OK:
+                if self.DEBUG: print('found entry ID: ' + repr(self._decode_tag(data)))
+                # get key
+                args = self._encode_tag([(0xD0, bytes([0x00]))])
+                (data, code) = self._execute(STK_APP_KEY_GET.format(int(len(args) / 2), args))
+                if code[0:2] == '61':
+                    (data, code) = self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))
+                    if code == STK_OK:
+                        self.lte.pppresume()
+                        # remove the fixed 0x04 prefix from the key entry_id
+                        return [tag[1][1:] for tag in self._decode_tag(data) if tag[0] == 0xc3][0]
 
         self.lte.pppresume()
         raise Exception(code)
@@ -290,6 +320,7 @@ class Protocol:
         :param entry_title: the unique title of the key, which corresponds to the UUID of the device.
         :return: the entry_id name or throws an exception if the operation fails
         """
+        if self.DEBUG: print("generating key pair with entry ID " + entry_id)
         self.lte.pppsuspend()
         # see ch 4.1.14 ID and Title (ID shall be fix and title the UUID of the device)
 
@@ -327,17 +358,18 @@ class Protocol:
         if code == STK_OK:
             args = binascii.hexlify(value).decode()
             # split command into smaller chunks and handle the last chunk differently
-            chunk_size = self.MAX_AT_LENGTH - len(STK_APP_SIGN_FINAL)
+            chunk_size = self.MAX_AT_LENGTH - len(STK_APP_SIGN_FINAL[:-2].format(0, 0))
             chunks = [args[i:i + chunk_size] for i in range(0, len(args), chunk_size)]
             for chunk in chunks[:-1]:
                 (data, code) = self._execute(STK_APP_SIGN_FINAL.format(0, int(len(chunk) / 2), chunk))
                 if code != STK_OK: break
             else:
                 (data, code) = self._execute(STK_APP_SIGN_FINAL.format(1 << 7, int(len(chunks[-1]) / 2), chunks[-1]))
-            (data, code) = self._get_response(code)
-            self.lte.pppresume()
-            if code == STK_OK:
-                return data
+            if code[0:2] == '61':
+                (data, code) = self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))
+                if code == STK_OK:
+                    self.lte.pppresume()
+                    return data
 
         self.lte.pppresume()
         raise Exception(code)
@@ -358,7 +390,7 @@ class Protocol:
         if code == STK_OK:
             args = binascii.hexlify(value).decode()
             # split command into smaller chunks and handle the last chunk differently
-            chunk_size = self.MAX_AT_LENGTH - len(STK_APP_VERIFY_FINAL)
+            chunk_size = self.MAX_AT_LENGTH - len(STK_APP_VERIFY_FINAL[:-2].format(0, 0))
             chunks = [args[i:i + chunk_size] for i in range(0, len(args), chunk_size)]
             for chunk in chunks[:-1]:
                 (data, code) = self._execute(STK_APP_VERIFY_FINAL.format(0, int(len(chunk) / 2), chunk))

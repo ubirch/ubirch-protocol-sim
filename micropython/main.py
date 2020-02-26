@@ -60,7 +60,12 @@ device_name = "Q"  # fixme device_name = "A"
 # initialize the ubirch protocol interface
 ubirch = Protocol(lte=lte, pin=config["sim"]["pin"], at_debug=config["sim"]["debug"])
 
+# get X.509 certificate from SIM
+csr = ubirch.get_certificate(device_name)
+print("X.509 certificate: " + binascii.hexlify(csr).decode())
+
 # create a certificate for the device and register public key at ubirch key service
+# todo this will be replaced by the X.509 certificate from the SIM card
 csr = get_certificate(device_name, device_uuid, ubirch)
 
 try:
