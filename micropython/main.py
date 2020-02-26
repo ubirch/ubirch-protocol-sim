@@ -1,14 +1,13 @@
+import crypto
 import hashlib
 import json
-import time
-
-import crypto
 import machine
 import pycom
+import time
 import ubinascii as binascii
-from network import LTE
+from network import WLAN, LTE
 
-from helpers import nb_iot_attach, nb_iot_connect, set_time, get_certificate, register_key, post
+from helpers import wifi_connect, nb_iot_attach, nb_iot_connect, set_time, get_certificate, register_key, post
 from ubirch import Protocol
 from uuid import UUID
 
@@ -29,7 +28,9 @@ HEADERS = [
     'X-Ubirch-Auth-Type: ubirch'
 ]
 
-# TODO take this out if LTE works
+lte = LTE()
+
+# # TODO take this out if LTE works
 # # initialize wifi connection
 # wlan = WLAN(mode=WLAN.STA)
 # if not wifi_connect(wlan, config["wifi"]["ssid"], config["wifi"]["pass"]):
@@ -38,7 +39,6 @@ HEADERS = [
 #     machine.reset()
 
 # initialize NB-IoT connection
-lte = LTE()
 if not nb_iot_attach(lte, config["apn"]):
     print("ERROR: unable to attach to network. Resetting device...")
     time.sleep(5)
@@ -60,7 +60,12 @@ device_name = "A"
 # initialize the ubirch protocol interface
 ubirch = Protocol(lte=lte, pin=config["sim"]["pin"], at_debug=config["sim"]["debug"])
 
+# get X.509 certificate from SIM
+csr = ubirch.get_certificate(device_name)
+print("X.509 certificate: " + binascii.hexlify(csr).decode())
+
 # create a certificate for the device and register public key at ubirch key service
+# todo this will be replaced by the X.509 certificate from the SIM card
 csr = get_certificate(device_name, device_uuid, ubirch)
 
 try:
@@ -77,7 +82,7 @@ except:
     machine.reset()
 
 # get public key of device
-public_key = ubirch.key_get(device_name)
+public_key = ubirch.get_key(device_name)
 print("** public key: {} ({})".format(binascii.hexlify(public_key).decode(), len(public_key)))
 
 interval = 30
@@ -86,7 +91,7 @@ while True:
     pycom.rgbled(0x002200)  # LED green
     start_time = time.time()  # start timer
 
-    # get data and calculate hash over timestamp, uuid and data to ensure hash is unique
+    # get data and calculate hash of timestamp, UUID and data to ensure hash is unique
     payload_data = binascii.hexlify(crypto.getrandbits(32))
     unique_data = "{}{}{}".format(start_time, device_uuid, payload_data)
     data_hash = hashlib.sha256(unique_data).digest()

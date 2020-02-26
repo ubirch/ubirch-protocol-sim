@@ -25,6 +25,7 @@
 """
 
 import time
+from uuid import UUID
 
 import ubinascii as binascii
 from network import LTE
@@ -39,32 +40,35 @@ STK_MD = '6310'  # more data, repeat finishing
 
 # SIM toolkit commands 
 STK_GET_RESPONSE = '00C00000{:02X}'  # get a pending response
-STK_AUTH_PIN = '00200000{:02X}{}'  # authenticate with pin
+STK_AUTH_PIN = '00200000{:02X}{}'  # authenticate with pin ([1], 2.1.2)
 
-# generica app commands
-STK_APP_SELECT = '00A4040010{}'  # APDU Select Application
-STK_APP_RANDOM = '80B900{:02X}00'  # APDU Generate Secure Random ([1], 4.2.7, page 50)
-STK_APP_DELETE_ALL = '80E50000'  # APDU Delete All SS Entries ([1], 4.1.7, page 30)
-STK_APP_SS_SELECT = '80A50000{:02X}{}'  # APDU Select SS Entry ([1], 4.1.2, page 25)
+# generic app commands
+STK_APP_SELECT = '00A4040010{}'  # APDU Select Application ([1], 2.1.1)
+STK_APP_RANDOM = '80B900{:02X}00'  # APDU Generate Secure Random ([1], 2.1.3)
+STK_APP_SS_SELECT = '80A50000{:02X}{}'  # APDU Select SS Entry ([1], 2.1.4)
+STK_APP_DELETE_ALL = '80E50000'  # APDU Delete All SS Entries
 
-# ubirch ubirch specific commands
-STK_APP_KEY_GENERATE = '80B28000{:02X}{}'  # APDU Generate Key Pair
-STK_APP_KEY_GET = '80CB0000{:02X}{}'  # APDU Get Key
-STK_APP_SIGN_INIT = '80B5{:02X}00{:02X}{}'  # APDU Sign Init command ([1], page 14)
-STK_APP_SIGN_FINAL = '80B6{:02X}00{:02X}{}'  # APDU Sign Update/Final command ([1], page 15)
-STK_APP_VERIFY_INIT = '80B7{:02X}00{:02X}{}'  # APDU Verify Signature Init ([1], page 11)
-STK_APP_VERIFY_FINAL = '80B8{:02X}00{:02X}{}'  # APDU Verify Signature Update/Final ([1], page 12)
+# ubirch specific commands
+STK_APP_KEY_GENERATE = '80B28000{:02X}{}'  # APDU Generate Key Pair ([1], 2.1.7)
+STK_APP_KEY_GET = '80CB0000{:02X}{}'  # APDU Get Key ([1], 2.1.9)
+STK_APP_SIGN_INIT = '80B5{:02X}00{:02X}{}'  # APDU Sign Init command ([1], 2.2.1)
+STK_APP_SIGN_FINAL = '80B6{:02X}00{:02X}{}'  # APDU Sign Update/Final command ([1], 2.2.2)
+STK_APP_VERIFY_INIT = '80B7{:02X}00{:02X}{}'  # APDU Verify Signature Init ([1], 2.2.3)
+STK_APP_VERIFY_FINAL = '80B8{:02X}00{:02X}{}'  # APDU Verify Signature Update/Final ([1], 2.2.4)
 
 # certificate management
-STK_APP_CSR_GENERATE = '80BA{:02X}00{:02X}{}'  # Generate Certificate Sign Request command ([1], page 5)
+STK_APP_CSR_GENERATE_FIRST = '80BA8000{:02X}{}'  # Generate Certificate Sign Request command ([1], 2.1.8)
+STK_APP_CSR_GENERATE_NEXT = '80BA8100{:02X}'  # Get Certificate Sign Request response ([1], 2.1.8)
+STK_APP_CERT_STORE = '80E3{:02X}00{:02X}{}'  # Store Certificate
+STK_APP_CERT_UPDATE = '80E7{:02X}00{:02X}{}'  # Update Certificate
+STK_APP_CERT_GET = '80CC{:02X}0000'  # Get Certificate
 
 APP_UBIRCH_SIGNED = 0x22
 APP_UBIRCH_CHAINED = 0x23
 
 
 class Protocol:
-    DEBUG = False
-    MAX_AT_LENGTH = 72
+    MAX_AT_LENGTH = 110
 
     def __init__(self, lte: LTE, pin: str, at_debug: bool = False):
         """
@@ -96,30 +100,42 @@ class Protocol:
     def _encode_tag(self, tags: [(int, bytes or str)]) -> str:
         """
         Encode taged arguments for APDU commands.
-        :param tags: a list of tuples of the format (tag, value) where value may be bytes or a pre-encoded str
+        :param tags: a list of tuples of the format (tag, data) where data may be bytes or a pre-encoded str
         :return: a hex encoded string, for use with the APDU
         """
         r = ""
         for (tag, data) in tags:
             if isinstance(data, bytes):
-                r += "{0:02X}{1:02X}{2}".format(tag, len(data), binascii.hexlify(data).decode())
-            elif isinstance(data, str):
-                r += "{0:02X}{1:02X}{2}".format(tag, int(len(data) / 2), data)
-            else:
-                raise Exception("tag data must be bytes or str")
+                # convert bytes into hex encoded string
+                data = binascii.hexlify(data).decode()
+
+            data_len = int(len(data) / 2)
+            if data_len > 0xff:
+                data_len = (0x82 << 16) | data_len
+
+            r += "{0:02X}{1:02X}{2}".format(tag, data_len, data)
         return r
 
-    def _decode_tag(self, value: bytes) -> [(int, bytes)]:
+    def _decode_tag(self, encoded: bytes) -> [(int, bytes)]:
         """
         Decode APDU response data that contains tags.
-        :param value: the response data with tags to decode
-        :return: (tag, value, end index)
+        :param encoded: the response data with tags to decode
+        :return: (tag, data)
         """
         decoded = []
         idx = 0
-        while idx < len(value):
-            endIdx = idx + int(value[idx + 1]) + 2
-            decoded.append(tuple((value[idx], value[idx + 2:endIdx])))
+        while idx < len(encoded):
+            tag = encoded[idx]
+            data_len = int(encoded[idx + 1])
+            idx += 2
+            if data_len == 0x82:  # 0x82 indicates the length of the tag data being 2 bytes long
+                data_len = int(encoded[idx]) << 8 | int(encoded[idx + 1])
+                idx += 2
+            if len(encoded[idx:]) < data_len:
+                raise Exception("tag %02x has not enough data %d < %d".format(tag, len(encoded[idx:]), data_len))
+            endIdx = idx + data_len
+            data = encoded[idx:endIdx]
+            decoded.append(tuple((tag, data)))
             idx = endIdx
         return decoded
 
@@ -129,38 +145,56 @@ class Protocol:
         :param cmd: the command to execute
         :return: a tuple of (data, code)
         """
-        atcmd = 'AT+CSIM={},"{}"'.format(len(cmd), cmd.upper())
-        if self.DEBUG: print("++ " + atcmd)
-        result = [k for k in self.lte.send_at_cmd(atcmd).split('\r\n') if len(k.strip()) > 0]
+        at_cmd = 'AT+CSIM={},"{}"'.format(len(cmd), cmd.upper())
+        if self.DEBUG: print("++ " + at_cmd)
+        result = [k for k in self.lte.send_at_cmd(at_cmd).split('\r\n') if len(k.strip()) > 0]
         if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
 
         if result[-1] == 'OK':
-            result = result[0][7:].split(',')[1]
+            response = result[0][7:].split(',')[1]
             data = b''
-            code = result[-4:]
-            if len(result) > 2:
-                data = binascii.unhexlify(result[0:-4])
+            code = response[-4:]
+            if len(response) > 4:
+                data = binascii.unhexlify(response[0:-4])
             return data, code
         else:
-            return [], result[-1]
+            return b'', result[-1]
 
-    def _get_response(self, code: str):
+    def _get_response(self, code: str) -> (bytes, str):
         """
         Get response from the application.
         :param code: the code response from the previous operation.
         :return: a (data, code) tuple as a result of APDU GET RESPONSE
         """
+        data = b''
         if code[0:2] == '61':
             (data, code) = self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))
-            if code == STK_OK:
-                return data, code
-            elif code == STK_MD:
-                (data2, code) = self._execute(STK_APP_SIGN_FINAL.format(0x81, 0, ""))
-                if code == STK_OK:
-                    return (data + data2), code
-            raise Exception(code)
-        else:
-            raise Exception(code)
+        return data, code
+
+    def _get_more_data(self, code: str, data: bytes, cmd: str) -> (bytes, str):
+        """
+        Append pending data to already retrieved data
+        :param code: the code response from the previous operation
+        :param data: the data to append more data to
+        :param cmd: the command to get the pending data
+        :return: a tuple of (data, code)
+        """
+        while code == STK_MD:
+            (moreData, code) = self._execute(cmd)
+            data += moreData
+        return data, code
+
+    def _select_ss_entry(self, entry_id: str) -> str:
+        """
+        Select an entry from the secure storage of the SIM card
+        :param entry_id: the entry ID
+        :return: the code response from the operation
+        """
+        (data, code) = self._execute(STK_APP_SS_SELECT.format(len(entry_id), binascii.hexlify(entry_id).decode()))
+        (data, code) = self._get_response(code)
+        if code == STK_OK and self.DEBUG:
+            print('found entry ID: ' + repr(self._decode_tag(data)))
+        return code
 
     def select(self):
         """
@@ -172,10 +206,11 @@ class Protocol:
 
     def sim_auth(self, pin: str) -> bool:
         """
-        Authenticate agains the SIM application to be able to use secure operations.
+        Authenticate against the SIM application to be able to use secure operations.
         :param pin: the pin to use for authentication
         :return: True if the operation was successful
         """
+        if self.DEBUG: print("authenticating with PIN " + pin)
         self.lte.pppsuspend()
         (data, code) = self._execute(STK_AUTH_PIN.format(len(pin), binascii.hexlify(pin).decode()))
         self.lte.pppresume()
@@ -189,6 +224,7 @@ class Protocol:
         :param length: the number of random bytes to generate
         :return: a byte array containing the random bytes
         """
+        if self.DEBUG: print("generating random data with length " + str(length))
         self.lte.pppsuspend()
         (data, code) = self._execute(STK_APP_RANDOM.format(length))
         self.lte.pppresume()
@@ -200,74 +236,110 @@ class Protocol:
         """
         Delete all existing secure memory entries.
         """
+        if self.DEBUG: print("erasing ALL SS entries")
         self.lte.pppsuspend()
-        (data, code) = self._execute("80E50000")
-        (data, code) = self._get_response(code)
+        (data, code) = self._execute(STK_APP_DELETE_ALL)
         self.lte.pppresume()
 
         return data, code
 
-    def get_csr(self, entry_id: str) -> bytes:
+    def generate_csr(self, entry_id: str, uuid: UUID) -> bytes:
         """
-        [WIP] Request a CSR from one of the selected key.
+        +++ THIS METHOD DOES NOT WORK WITH CURRENT PYCOM FIRMWARE +++
+        +++ the max. length of AT commands to transmit via UART (using lte.send_at_cmd) is 127 bytes +++
+        +++ but the length of the AT command containing certificate attributes is much greater (264 bytes) +++
+        [WIP] Request a CSR for the selected key.
         :param entry_id: the key entry_id
-        :return: the CSR
+        :param uuid: the csr subject uuid
+        :return: the CSR bytes
         """
+        if self.DEBUG: print("generating CSR for key with entry ID " + entry_id)
+        cert_attr = self._encode_tag([
+            (0xD4, "DE".encode()),
+            (0xD5, "Berlin".encode()),
+            (0xD6, "Berlin".encode()),
+            (0xD7, "ubirch GmbH".encode()),
+            (0xD8, "Security".encode()),
+            (0xD9, str(uuid).encode()),
+            (0xDA, "info@ubirch.com".encode())
+        ])
+        cert_args = self._encode_tag([
+            (0xD3, bytes([0x00])),
+            (0xE7, cert_attr),
+            (0xC2, bytes([0x0B, 0x01, 0x00])),
+            (0xD0, bytes([0x21]))
+        ])
+        args = self._encode_tag([
+            (0xC4, ("_" + entry_id).encode()),
+            (0xC4, entry_id.encode()),
+            (0xE5, cert_args)
+        ])
+
         self.lte.pppsuspend()
-        (data, code) = self._execute(
-            STK_APP_SS_SELECT.format(len("_" + entry_id), binascii.hexlify("_" + entry_id).decode()))
-        (data, code) = self._get_response(code)
+        (data, code) = self._execute(STK_APP_CSR_GENERATE_FIRST.format(int(len(args) / 2), args))
+        (data, code) = self._get_response(code)  # get first part of CSR
+        (data, code) = self._get_more_data(code, data, STK_APP_CSR_GENERATE_NEXT.format(0))  # get next part of CSR
         if code == STK_OK:
-            # tags = [(tag, value.decode()) for (tag,value) in ]
-            if self.DEBUG: print('Found entry_id: ' + repr(self._decode_tag(data)))
-            cert_args = self._encode_tag([
-                (0xD3, bytes([0x00])),
-                (0xE7, bytes()),
-                (0xC2, bytes([0x0B, 0x01, 0x00])),
-                (0xD0, bytes([0x21]))
-            ])
-            args = self._encode_tag([
-                (0xC4, str.encode(entry_id)),
-                (0xE5, cert_args)
-            ])
-            (data, code) = self._execute(STK_APP_CSR_GENERATE.format(0x80, int(len(args) / 2), args))
-            (data, code) = self._get_response(code)
             self.lte.pppresume()
             return data
 
         self.lte.pppresume()
         raise Exception(code)
 
-    def key_get(self, entry_id: str) -> [(int, bytes)]:
+    def get_certificate(self, entry_id: str) -> bytes:
+        """
+        Retrieve the X.509 certificate for a key with given key entry_id
+        :param entry_id: the key entry ID of the corresponding key of the certificate
+        :return: the certificate bytes
+        """
+        if self.DEBUG: print("getting X.509 certificate for key with entry ID " + entry_id)
+        cert_id = entry_id + "_c"
+        self.lte.pppsuspend()
+        # select SS certificate entry
+        code = self._select_ss_entry(cert_id)
+        if code == STK_OK:
+            # get the certificate
+            (data, code) = self._execute(STK_APP_CERT_GET.format(0))
+            (data, code) = self._get_more_data(code, data, STK_APP_CERT_GET.format(1))
+            if code == STK_OK:
+                self.lte.pppresume()
+                return [tag[1] for tag in self._decode_tag(data) if tag[0] == 0xc3][0]
+
+        self.lte.pppresume()
+        raise Exception(code)
+
+    def get_key(self, entry_id: str) -> bytes:
         """
         Retrieve the public key of a given entry_id.
         :param entry_id: the key to look for
         :return: the public key bytes
         """
+        if self.DEBUG: print("getting public key with entry ID " + entry_id)
+        pubkey_id = "_" + entry_id
         self.lte.pppsuspend()
-        (data, code) = self._execute(
-            STK_APP_SS_SELECT.format(len("_" + entry_id), binascii.hexlify("_" + entry_id).decode()))
-        (data, code) = self._get_response(code)
+        # select SS public key entry
+        code = self._select_ss_entry(pubkey_id)
         if code == STK_OK:
-            # tags = [(tag, value.decode()) for (tag,value) in ]
-            if self.DEBUG: print('Found entry_id: ' + repr(self._decode_tag(data)))
+            # get the key
             args = self._encode_tag([(0xD0, bytes([0x00]))])
             (data, code) = self._execute(STK_APP_KEY_GET.format(int(len(args) / 2), args))
             (data, code) = self._get_response(code)
-            self.lte.pppresume()
-            # remove the fixed 0x04 prefix from the key entry_id
-            return [tag[1][1:] for tag in self._decode_tag(data) if tag[0] == 195][0]
+            if code == STK_OK:
+                self.lte.pppresume()
+                # remove the fixed 0x04 prefix from the key entry_id
+                return [tag[1][1:] for tag in self._decode_tag(data) if tag[0] == 0xc3][0]
 
         self.lte.pppresume()
         raise Exception(code)
 
-    def key_generate(self, entry_id: str, entry_title: str) -> str:
+    def generate_key(self, entry_id: str, entry_title: str) -> str:
         """
         Generate a new key pair and store it on the SIM card using the entry_id and the entry_title.
         :param entry_id: the ID of the entry_id in the SIM cards secure storage area. (KEY_ID)
         :param entry_title: the unique title of the key, which corresponds to the UUID of the device.
         :return: the entry_id name or throws an exception if the operation fails
         """
+        if self.DEBUG: print("generating key pair with entry ID " + entry_id)
         self.lte.pppsuspend()
         # see ch 4.1.14 ID and Title (ID shall be fix and title the UUID of the device)
 
@@ -305,7 +377,7 @@ class Protocol:
         if code == STK_OK:
             args = binascii.hexlify(value).decode()
             # split command into smaller chunks and handle the last chunk differently
-            chunk_size = self.MAX_AT_LENGTH - len(STK_APP_SIGN_FINAL)
+            chunk_size = self.MAX_AT_LENGTH - len(STK_APP_SIGN_FINAL[:-2].format(0, 0))
             chunks = [args[i:i + chunk_size] for i in range(0, len(args), chunk_size)]
             for chunk in chunks[:-1]:
                 (data, code) = self._execute(STK_APP_SIGN_FINAL.format(0, int(len(chunk) / 2), chunk))
@@ -313,8 +385,8 @@ class Protocol:
             else:
                 (data, code) = self._execute(STK_APP_SIGN_FINAL.format(1 << 7, int(len(chunks[-1]) / 2), chunks[-1]))
             (data, code) = self._get_response(code)
-            self.lte.pppresume()
             if code == STK_OK:
+                self.lte.pppresume()
                 return data
 
         self.lte.pppresume()
@@ -336,7 +408,7 @@ class Protocol:
         if code == STK_OK:
             args = binascii.hexlify(value).decode()
             # split command into smaller chunks and handle the last chunk differently
-            chunk_size = self.MAX_AT_LENGTH - len(STK_APP_VERIFY_FINAL)
+            chunk_size = self.MAX_AT_LENGTH - len(STK_APP_VERIFY_FINAL[:-2].format(0, 0))
             chunks = [args[i:i + chunk_size] for i in range(0, len(args), chunk_size)]
             for chunk in chunks[:-1]:
                 (data, code) = self._execute(STK_APP_VERIFY_FINAL.format(0, int(len(chunk) / 2), chunk))
