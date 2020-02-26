@@ -309,13 +309,11 @@ func (p *Protocol) GenerateCSR(name string, uid uuid.UUID) ([]byte, error) {
 
 	for code == ApduMoreData {
 		moreData := ""
-		moreData, code, _ = p.execute(stkAppCsrGenerateNext, 0) // get next part of CSR (request wrong length)
-		c := code >> 8
-		l := code & 0xff
-		if c == 0x6C { // SIM returns code 6C (wrong length) followed by one byte indicating the actual length of data still available
-			moreData, code, _ = p.execute(stkAppCsrGenerateNext, l) // get next part of CSR (actual length)
-		}
+		moreData, code, _ = p.execute(stkAppCsrGenerateNext, 0) // get next part of CSR
 		data += moreData
+	}
+	if code != ApduOk {
+		return nil, errors.New(fmt.Sprintf("unable to retrieve certificate signing request: 0x%x", code))
 	}
 
 	return hex.DecodeString(data)
