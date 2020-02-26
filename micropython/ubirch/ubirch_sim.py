@@ -146,18 +146,9 @@ class Protocol:
         :param cmd: the command to execute
         :return: a tuple of (data, code)
         """
-        MAX = 127
         at_cmd = 'AT+CSIM={},"{}"'.format(len(cmd), cmd.upper())
-        i = 0
-        while len(at_cmd[i:]) >= MAX:
-            at_cmd_chunk = at_cmd[i:i + MAX]
-            i += MAX
-            if self.DEBUG: print("+++ " + at_cmd_chunk)
-            self.lte.send_at_cmd(at_cmd_chunk)
-
-        at_cmd_chunk = at_cmd[i:]
-        if self.DEBUG: print("++ " + at_cmd_chunk)
-        result = [k for k in self.lte.send_at_cmd(at_cmd_chunk).split('\r\n') if len(k.strip()) > 0]
+        if self.DEBUG: print("++ " + at_cmd)
+        result = [k for k in self.lte.send_at_cmd(at_cmd).split('\r\n') if len(k.strip()) > 0]
         if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
 
         if result[-1] == 'OK':
@@ -176,17 +167,13 @@ class Protocol:
         :param code: the code response from the previous operation.
         :return: a (data, code) tuple as a result of APDU GET RESPONSE
         """
-        if code[0:2] == '61':
+        response = ""
+        while code[0:2] == '61':
             (data, code) = self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))
+            response += data
             if code == STK_OK:
-                return data, code
-            elif code == STK_MD:
-                (data2, code) = self._execute(STK_APP_SIGN_FINAL.format(0x81, 0, ""))  # TODO why STK_APP_SIGN_FINAL ?
-                if code == STK_OK:
-                    return (data + data2), code
-            raise Exception(code)
-        else:
-            raise Exception(code)
+                return response, code
+        raise Exception(code)
 
     def select(self):
         """
@@ -228,7 +215,6 @@ class Protocol:
         """
         self.lte.pppsuspend()
         (data, code) = self._execute(STK_APP_DELETE_ALL)
-        (data, code) = self._get_response(code)
         self.lte.pppresume()
 
         return data, code

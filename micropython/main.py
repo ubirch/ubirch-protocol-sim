@@ -59,12 +59,6 @@ device_name = "Q"  # fixme device_name = "A"
 
 # initialize the ubirch protocol interface
 ubirch = Protocol(lte=lte, pin=config["sim"]["pin"], at_debug=config["sim"]["debug"])
-csr = ubirch.generate_csr(device_name, device_uuid)
-print(csr)
-
-import sys
-
-sys.exit()
 
 # create a certificate for the device and register public key at ubirch key service
 csr = get_certificate(device_name, device_uuid, ubirch)
