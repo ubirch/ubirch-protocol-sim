@@ -172,12 +172,24 @@ class Protocol:
         return data, code
 
     def _get_more_data(self, code: str, data: bytes, cmd: str) -> (bytes, str):
+        """
+        Append pending data to already retrieved data
+        :param code: the code response from the previous operation
+        :param data: the data to append more data to
+        :param cmd: the command to get the pending data
+        :return: a tuple of (data, code)
+        """
         while code == STK_MD:
             (moreData, code) = self._execute(cmd)
             data += moreData
         return data, code
 
     def _select_ss_entry(self, entry_id: str) -> str:
+        """
+        Select an entry from the secure storage of the SIM card
+        :param entry_id: the entry ID
+        :return: the code response from the operation
+        """
         (data, code) = self._execute(STK_APP_SS_SELECT.format(len(entry_id), binascii.hexlify(entry_id).decode()))
         (data, code) = self._get_response(code)
         if code == STK_OK and self.DEBUG:
@@ -233,10 +245,13 @@ class Protocol:
 
     def generate_csr(self, entry_id: str, uuid: UUID) -> bytes:
         """
+        +++ THIS METHOD DOES NOT WORK WITH CURRENT PYCOM FIRMWARE +++
+        +++ the max. length of AT commands to transmit via UART (using lte.send_at_cmd) is 127 bytes +++
+        +++ but the length of the AT command containing certificate attributes is much greater (264 bytes) +++
         [WIP] Request a CSR for the selected key.
         :param entry_id: the key entry_id
         :param uuid: the csr subject uuid
-        :return: the CSR
+        :return: the CSR bytes
         """
         if self.DEBUG: print("generating CSR for key with entry ID " + entry_id)
         cert_attr = self._encode_tag([
