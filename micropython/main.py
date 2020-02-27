@@ -2,12 +2,14 @@ import crypto
 import hashlib
 import json
 import machine
+import os
 import pycom
 import time
 import ubinascii as binascii
 from network import WLAN, LTE
 
-from helpers import wifi_connect, nb_iot_attach, nb_iot_connect, set_time, get_certificate, register_key, post
+from helpers import wifi_connect, nb_iot_attach, nb_iot_connect, set_time, get_certificate, register_key, post, \
+    bootstrap
 from ubirch import Protocol
 from uuid import UUID
 
@@ -64,7 +66,21 @@ ubirch = Protocol(lte=lte, at_debug=config["sim"]["debug"])
 imsi = ubirch.get_imsi()
 print("IMSI: " + imsi)
 
-if not ubirch.sim_auth(config["sim"]["pin"]):
+# check if PIN is known
+pin_file = imsi + ".bin"
+pin = ""
+if pin_file in os.listdir('.'):
+    print("loading PIN for " + imsi)
+    with open(pin_file, "rb") as f:
+        pin = f.readline().decode()
+else:
+    print("bootstrapping SIM " + imsi)
+    pin = bootstrap(imsi, KEY_SERVER, config["api"]["upp"])
+    with open(pin_file, "wb") as f:
+        f.write(pin.encode())
+
+# use PIN to authenticate against the SIM application
+if not ubirch.sim_auth(pin):
     raise Exception("PIN not accepted")
 
 # get X.509 certificate from SIM
@@ -87,10 +103,6 @@ except:
     print("ERROR: can't register key, network failure. Resetting device...")
     time.sleep(5)
     machine.reset()
-
-# get public key of device
-public_key = ubirch.get_key(device_name)
-print("** public key: {} ({})".format(binascii.hexlify(public_key).decode(), len(public_key)))
 
 interval = 30
 pycom.heartbeat(False)  # turn off LED blinking
