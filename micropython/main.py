@@ -24,6 +24,7 @@ print("** UUID: {}".format(device_uuid))
 
 UPP_SERVER = 'niomon.{}.ubirch.com'.format(config["env"])
 KEY_SERVER = 'key.{}.ubirch.com'.format(config["env"])
+BOOT_SERVER = 'https://api.console.{}.ubirch.com'.format(config["env"])
 HEADERS = [
     'X-Ubirch-Hardware-Id: {}'.format(str(device_uuid)),
     'X-Ubirch-Credential: {}'.format(binascii.b2a_base64(config["api"]["upp"]).decode().rstrip('\n')),
@@ -57,7 +58,7 @@ if not set_time():
     machine.reset()
 
 # the pycom module restricts the size of SIM command lines, use only single character name!
-device_name = "Q"  # todo device_name = "A"
+device_name = "A"
 
 # initialize the ubirch protocol interface
 ubirch = Protocol(lte=lte, at_debug=config["sim"]["debug"])
@@ -66,7 +67,7 @@ ubirch = Protocol(lte=lte, at_debug=config["sim"]["debug"])
 imsi = ubirch.get_imsi()
 print("IMSI: " + imsi)
 
-# check if PIN is known
+# check if PIN is known and bootstrap if unknown
 pin_file = imsi + ".bin"
 pin = ""
 if pin_file in os.listdir('.'):
@@ -75,7 +76,7 @@ if pin_file in os.listdir('.'):
         pin = f.readline().decode()
 else:
     print("bootstrapping SIM " + imsi)
-    pin = bootstrap(imsi, KEY_SERVER, config["api"]["upp"])
+    pin = bootstrap(imsi, BOOT_SERVER, config["api"]["upp"], debug=config["sim"]["debug"])
     with open(pin_file, "wb") as f:
         f.write(pin.encode())
 
@@ -85,7 +86,11 @@ if not ubirch.sim_auth(pin):
 
 # get X.509 certificate from SIM
 csr = ubirch.get_certificate(device_name)
-print("X.509 certificate: " + binascii.hexlify(csr).decode())
+print("X.509 certificate: " + binascii.b2a_base64(csr).decode().rstrip('\n'))
+
+import sys
+
+sys.exit()
 
 # create a certificate for the device and register public key at ubirch key service
 # todo this will be replaced by the X.509 certificate from the SIM card

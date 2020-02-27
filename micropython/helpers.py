@@ -1,6 +1,8 @@
 import binascii
+import json
 import sys
 import time
+import urequests as requests
 
 import machine
 from network import WLAN, LTE
@@ -101,9 +103,9 @@ def get_certificate(device_id: str, device_uuid: UUID, proto: Protocol) -> str:
 
 def request(method: str, server: str, path: str, headers: list, data: bytes = None, debug: bool = False):
     import socket, ssl
-    headers += ['Host: {}'.format(server)]
+    headers.append('Host: {}'.format(server))
     if data is not None:
-        headers += ['Content-Length: {}'.format(len(data))]
+        headers.append('Content-Length: {}'.format(len(data)))
     req = '{} {} HTTP/1.0\r\n{}\r\n\r\n'.format(method, path, '\r\n'.join(headers)).encode()
     if debug:
         print("=== REQUEST")
@@ -145,13 +147,20 @@ def register_key(server: str, certificate: str, auth: str, debug: bool = False):
 
 
 def bootstrap(imsi: str, service_url: str, pw: str, debug: bool = False) -> str:
-    headers = [
-        'X-Ubirch-IMSI: {}'.format(imsi),
-        'X-Ubirch-Auth-Type: ubirch',
-        'X-Ubirch-Credential: {}'.format(binascii.b2a_base64(pw).decode().rstrip('\n'))
-    ]
-    response = get(service_url, '/ubirch-web-ui/api/v1/devices/bootstrap/json', headers, debug)
+    headers = {
+        'X-Ubirch-IMSI': imsi,
+        'X-Ubirch-Credential': binascii.b2a_base64(pw).decode().rstrip('\n'),
+        'X-Ubirch-Auth-Type': 'ubirch'
+    }
+    url = service_url + '/ubirch-web-ui/api/v1/devices/bootstrap'
+    r = requests.get(url, headers=headers)
+    if r.status_code == 200:
+        info = json.loads(r.content)
+        if debug: print("bootstrapping successful: " + info)
 
-    # todo get PIN from response
-    pin = ""
-    return pin
+        if info['encrypted']:  # not implemented yet
+            # decrypt PIN here
+            pass
+
+        pin = info['pin']
+        return pin
