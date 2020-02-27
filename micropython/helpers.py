@@ -147,6 +147,15 @@ def register_key(server: str, certificate: str, auth: str, debug: bool = False):
 
 
 def bootstrap(imsi: str, service_url: str, pw: str, debug: bool = False) -> str:
+    """
+    Claim SIM identity at the ubirch backend and return SIM applet PIN to unlock crypto functionality.
+    Throws exception if bootstrapping fails.
+    :param imsi: the SIM international mobile subscriber identity (IMSI)
+    :param service_url: the bootstrap service URL
+    :param pw: the ubirch backend password
+    :param debug: enable debug output
+    :return: the PIN to authenticate against the SIM card with
+    """
     headers = {
         'X-Ubirch-IMSI': imsi,
         'X-Ubirch-Credential': binascii.b2a_base64(pw).decode().rstrip('\n'),
@@ -164,3 +173,5 @@ def bootstrap(imsi: str, service_url: str, pw: str, debug: bool = False) -> str:
 
         pin = info['pin']
         return pin
+    else:
+        raise Exception("request to {} failed with status code {}: {}".format(url, r.status_code, r.text))
