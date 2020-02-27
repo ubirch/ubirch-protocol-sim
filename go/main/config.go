@@ -75,7 +75,7 @@ func (c *Config) load(fn string) error {
 		c.VerifyService = fmt.Sprintf("https://verify.%s.ubirch.com/api/upp", c.Env)
 	}
 	if c.BootstrapService == "" {
-		c.BootstrapService = fmt.Sprintf("https://key.%s.ubirch.com/ubirch-web-ui/api/v1/devices/bootstrap/json", c.Env)
+		c.BootstrapService = fmt.Sprintf("https://api.console.%s.ubirch.com/ubirch-web-ui/api/v1/devices/bootstrap", c.Env)
 	}
 
 	return nil
