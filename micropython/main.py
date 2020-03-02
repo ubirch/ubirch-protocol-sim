@@ -86,7 +86,11 @@ if not ubirch.sim_auth(pin):
 
 # get X.509 certificate from SIM
 csr = ubirch.get_certificate(device_name)
-print("X.509 certificate: " + binascii.b2a_base64(csr).decode().rstrip('\n'))
+print("X.509 certificate [base64]: " + binascii.b2a_base64(csr).decode().rstrip('\n'))
+print("X.509 certificate [hex]   : " + binascii.hexlify(csr).decode())
+
+device_uuid = ubirch.get_uuid(device_name)
+print("UUID: " + str(device_uuid))
 
 import sys
 

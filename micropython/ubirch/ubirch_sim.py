@@ -188,7 +188,7 @@ class Protocol:
             data += moreData
         return data, code
 
-    def _select_ss_entry(self, entry_id: str) -> str:
+    def _select_ss_entry(self, entry_id: str) -> (bytes, str):
         """
         Select an entry from the secure storage of the SIM card
         :param entry_id: the entry ID
@@ -198,7 +198,7 @@ class Protocol:
         (data, code) = self._get_response(code)
         if code == STK_OK and self.DEBUG:
             print('found entry ID: ' + repr(self._decode_tag(data)))
-        return code
+        return data, code
 
     def get_imsi(self) -> str:
         """
@@ -305,7 +305,7 @@ class Protocol:
         cert_id = entry_id + "_c"
         self.lte.pppsuspend()
         # select SS certificate entry
-        code = self._select_ss_entry(cert_id)
+        (data, code) = self._select_ss_entry(cert_id)
         if code == STK_OK:
             # get the certificate
             (data, code) = self._execute(STK_APP_CERT_GET.format(0))
@@ -313,6 +313,26 @@ class Protocol:
             if code == STK_OK:
                 self.lte.pppresume()
                 return [tag[1] for tag in self._decode_tag(data) if tag[0] == 0xc3][0]
+
+        self.lte.pppresume()
+        raise Exception(code)
+
+    def get_uuid(self, entry_id: str) -> UUID:
+        """
+        Retrieve the UUID of a given entry_id.
+        :param entry_id: the entry ID of the entry to look for
+        :return: the UUID
+        """
+        if self.DEBUG: print("getting UUID with entry ID " + entry_id)
+        pubkey_id = "_" + entry_id
+        self.lte.pppsuspend()
+        # select SS public key entry
+        (data, code) = self._select_ss_entry(pubkey_id)
+        if code == STK_OK:
+            # get the UUID
+            self.lte.pppresume()
+            uuid_bytes = [tag[1] for tag in self._decode_tag(data) if tag[0] == 0xc0][0]
+            return UUID(uuid_bytes)
 
         self.lte.pppresume()
         raise Exception(code)
@@ -327,7 +347,7 @@ class Protocol:
         pubkey_id = "_" + entry_id
         self.lte.pppsuspend()
         # select SS public key entry
-        code = self._select_ss_entry(pubkey_id)
+        (data, code) = self._select_ss_entry(pubkey_id)
         if code == STK_OK:
             # get the key
             args = self._encode_tag([(0xD0, bytes([0x00]))])
@@ -343,6 +363,7 @@ class Protocol:
 
     def generate_key(self, entry_id: str, entry_title: str) -> str:
         """
+        # FIXME not working because AT command too long for pycom FW
         Generate a new key pair and store it on the SIM card using the entry_id and the entry_title.
         :param entry_id: the ID of the entry_id in the SIM cards secure storage area. (KEY_ID)
         :param entry_title: the unique title of the key, which corresponds to the UUID of the device.
