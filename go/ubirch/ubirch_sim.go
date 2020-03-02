@@ -282,6 +282,44 @@ func (p *Protocol) GenerateKey(name string, uid uuid.UUID) error {
 	return err
 }
 
+func (p *Protocol) getDataFromTagID(tags []Tag, tagID byte) ([]byte, error) {
+	for _, tag := range tags {
+		if tag.Tag == tagID {
+			return tag.Data, nil
+		}
+	}
+	return nil, errors.New(fmt.Sprintf("did not find tag %x", tagID))
+}
+
+func (p *Protocol) GetUUID(name string) (uuid.UUID, error) {
+	// select SS entry
+	name = "_" + name
+	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
+	if err != nil {
+		return uuid.New(), err
+	}
+	data, code, err := p.response(code)
+	if err != nil {
+		return uuid.New(), err
+	}
+	if code != ApduOk {
+		return uuid.New(), errors.New(fmt.Sprintf("APDU error: %x, selecting SS entry (%s) failed", code, name))
+	}
+	tags, err := p.decode(data)
+	if err != nil {
+		return uuid.New(), err
+	}
+	entryTitle, err := p.getDataFromTagID(tags, byte(0xc0))
+	if err != nil {
+		return uuid.New(), err
+	}
+	uid, err := uuid.FromBytes(entryTitle)
+	if err != nil {
+		return uuid.New(), err
+	}
+	return uid, nil
+}
+
 func (p *Protocol) GenerateCSR(name string, uid uuid.UUID) ([]byte, error) {
 	certAttributes := p.encodeBinary([]Tag{
 		{0xD4, []byte("DE")},
@@ -479,6 +517,7 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	for _, tag := range tags {
 		if tag.Tag == 0xc3 {
 			// return the public key and remove the static 0xc4 from the beginning
