@@ -282,7 +282,7 @@ func (p *Protocol) GenerateKey(name string, uid uuid.UUID) error {
 	return err
 }
 
-func (p *Protocol) getDataFromTagID(tags []Tag, tagID byte) ([]byte, error) {
+func (p *Protocol) findTag(tags []Tag, tagID byte) ([]byte, error) {
 	for _, tag := range tags {
 		if tag.Tag == tagID {
 			return tag.Data, nil
@@ -309,7 +309,7 @@ func (p *Protocol) GetUUID(name string) (uuid.UUID, error) {
 	if err != nil {
 		return uuid.New(), err
 	}
-	entryTitle, err := p.getDataFromTagID(tags, byte(0xc0))
+	entryTitle, err := p.findTag(tags, byte(0xc0))
 	if err != nil {
 		return uuid.New(), err
 	}
@@ -478,13 +478,7 @@ func (p *Protocol) GetCertificate(name string) ([]byte, error) {
 		log.Printf("couldn't decode response tags! %s", data)
 		return nil, err
 	}
-	for _, tag := range tags {
-		if tag.Tag == 0xc3 {
-			// return the certificate
-			return tag.Data, nil
-		}
-	}
-	return nil, errors.New("did not find certificate in response, no tag 0xc3")
+	return p.findTag(tags, 0xc3)
 }
 
 // Get the public key for a given name from the SIM storage.
@@ -518,13 +512,13 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 		return nil, err
 	}
 
-	for _, tag := range tags {
-		if tag.Tag == 0xc3 {
-			// return the public key and remove the static 0xc4 from the beginning
-			return tag.Data[1:], nil
-		}
+	pubkey, err := p.findTag(tags, 0xc3)
+	if err != nil {
+		return nil, err
 	}
-	return nil, errors.New("did not find public key entry, no tag 0xc3")
+
+	// return the public key and remove the static 0xc4 from the beginning
+	return pubkey[1:], nil
 }
 
 // Execute a sign operation using the key selected by the given name. Depending on
