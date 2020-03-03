@@ -47,8 +47,9 @@ const (
 	stkAppDeleteAll     = "80E50000"       // APDU Delete All SS Entries
 
 	// Ubirch specific commands
-	stkAppKeyGenerate = "80B28000%02X%s"   // APDU Generate Key Pair ([1], 2.1.7)
+	stkAppKeyGenerate = "80B28000%02X%s"   // APDU Generate an ECC Key Pair ([1], 2.1.7)
 	stkAppKeyGet      = "80CB0000%02X%s"   // APDU Get Key ([1], 2.1.9)
+	stkAppKeyPut      = "80D88000%02X%s"   // APDU Store an ECC public key
 	stkAppSignInit    = "80B5%02X00%02X%s" // APDU Sign Init command ([1], 2.2.1)
 	stkAppSignFinal   = "80B6%02X00%02X%s" // APDU Sign Update/Final command ([1], 2.2.2)
 	stkAppVerifyInit  = "80B7%02X00%02X%s" // APDU Verify Signature Init ([1], 2.2.3)
@@ -180,15 +181,13 @@ func (p *Protocol) response(code uint16) (string, uint16, error) {
 	return data, code, nil
 }
 
-func (p *Protocol) GetIMSI() (string, error) {
-	imsi, err := p.Send("AT+CIMI")
-	if err != nil {
-		return "", err
+func (p *Protocol) findTag(tags []Tag, tagID byte) ([]byte, error) {
+	for _, tag := range tags {
+		if tag.Tag == tagID {
+			return tag.Data, nil
+		}
 	}
-	if imsi[0] == "ERROR" {
-		return "", errors.New("no IMSI available")
-	}
-	return imsi[0], nil
+	return nil, errors.New(fmt.Sprintf("did not find tag %x", tagID))
 }
 
 func (p *Protocol) selectApplet() error {
@@ -255,40 +254,15 @@ func (p *Protocol) Random(len int) ([]byte, error) {
 	return hex.DecodeString(r)
 }
 
-// Generate a key pair on the SIM card and store it using the given name and the UUID that is
-// later used for the ubirch-protocol. The name for public keys is prefixed with an underscore
-// ("_") and the private key gets the name as is. This API automatically selects the right name.
-func (p *Protocol) GenerateKey(name string, uid uuid.UUID) error {
-	uidBytes, err := uid.MarshalBinary()
+func (p *Protocol) GetIMSI() (string, error) {
+	imsi, err := p.Send("AT+CIMI")
 	if err != nil {
-		return err
+		return "", err
 	}
-
-	args := p.encode([]Tag{
-		{0xC4, []byte("_" + name)}, // Entry ID (public key))
-		{0xC0, uidBytes},           // Entry title
-		{0xC1, []byte{0x03}},       // Permission: Read & Write Allowed
-		{0xC4, []byte(name)},       // Entry ID (private key))
-		{0xC0, uidBytes},           // Entry title
-		{0xC1, []byte{0x02}},       // Permission: Only Write Allowed
-	})
-	_, code, err := p.execute(stkAppKeyGenerate, len(args)/2, args)
-	if err != nil {
-		return err
+	if imsi[0] == "ERROR" {
+		return "", errors.New("no IMSI available")
 	}
-	if code != ApduOk {
-		return errors.New(fmt.Sprintf("APDU error: %x, generate key failed", code))
-	}
-	return err
-}
-
-func (p *Protocol) findTag(tags []Tag, tagID byte) ([]byte, error) {
-	for _, tag := range tags {
-		if tag.Tag == tagID {
-			return tag.Data, nil
-		}
-	}
-	return nil, errors.New(fmt.Sprintf("did not find tag %x", tagID))
+	return imsi[0], nil
 }
 
 func (p *Protocol) GetUUID(name string) (uuid.UUID, error) {
@@ -318,6 +292,97 @@ func (p *Protocol) GetUUID(name string) (uuid.UUID, error) {
 		return uuid.New(), err
 	}
 	return uid, nil
+}
+
+// Generate a key pair on the SIM card and store it using the given name and the UUID that is
+// later used for the ubirch-protocol. The name for public keys is prefixed with an underscore
+// ("_") and the private key gets the name as is. This API automatically selects the right name.
+func (p *Protocol) GenerateKey(name string, uid uuid.UUID) error {
+	uidBytes, err := uid.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	args := p.encode([]Tag{
+		{0xC4, []byte("_" + name)}, // Entry ID (public key)
+		{0xC0, uidBytes},           // Entry title
+		{0xC1, []byte{0x03}},       // Permission: Read & Write Allowed
+		{0xC4, []byte(name)},       // Entry ID (private key))
+		{0xC0, uidBytes},           // Entry title
+		{0xC1, []byte{0x02}},       // Permission: Only Write Allowed
+	})
+	_, code, err := p.execute(stkAppKeyGenerate, len(args)/2, args)
+	if err != nil {
+		return err
+	}
+	if code != ApduOk {
+		return errors.New(fmt.Sprintf("APDU error: %x, generate key failed", code))
+	}
+	return err
+}
+
+// [WIP] Store an ECC public key to the SIM cards secure storage
+func (p *Protocol) PutKey(name string, uid uuid.UUID, pubKey []byte) error {
+	uidBytes, err := uid.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	args := p.encode([]Tag{
+		{0xC4, []byte(name)},             // Entry ID for public key
+		{0xC0, uidBytes},                 // Entry title (UUID)
+		{0xC1, []byte{0x03}},             // Permission: Read & Write Allowed
+		{0xC2, []byte{0x0B, 0x01, 0x00}}, // Key Type: TYPE_EC_FP_PUBLIC, Key Length: LENGTH_EC_FP_256
+		{0xC3, pubKey},                   // Public key to be stored
+	})
+	_, code, err := p.execute(stkAppKeyPut, len(args)/2, args)
+	if err != nil {
+		return err
+	}
+	if code != ApduOk {
+		return errors.New(fmt.Sprintf("APDU error: %x, storing key failed", code))
+	}
+	return nil
+}
+
+// Get the public key for a given name from the SIM storage.
+// Returns a byte array with the raw bytes of the public key.
+func (p *Protocol) GetKey(name string) ([]byte, error) {
+	// select SS entry
+	name = "_" + name
+	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
+	if err != nil {
+		return nil, err
+	}
+	_, _, err = p.response(code)
+	if err != nil {
+		return nil, err
+	}
+
+	// get public key from selected entry
+	args := p.encode([]Tag{{0xd0, []byte{0x00}}})
+	_, code, err = p.execute(stkAppKeyGet, len(args)/2, args)
+	if err != nil {
+		return nil, err
+	}
+
+	data, _, err := p.response(code)
+	if err != nil {
+		return nil, err
+	}
+
+	tags, err := p.decode(data)
+	if err != nil {
+		return nil, err
+	}
+
+	pubkey, err := p.findTag(tags, 0xc3)
+	if err != nil {
+		return nil, err
+	}
+
+	// return the public key and remove the static 0xc4 from the beginning
+	return pubkey[1:], nil
 }
 
 func (p *Protocol) GenerateCSR(name string, uid uuid.UUID) ([]byte, error) {
@@ -479,46 +544,6 @@ func (p *Protocol) GetCertificate(name string) ([]byte, error) {
 		return nil, err
 	}
 	return p.findTag(tags, 0xc3)
-}
-
-// Get the public key for a given name from the SIM storage.
-// Returns a byte array with the raw bytes of the public key.
-func (p *Protocol) GetKey(name string) ([]byte, error) {
-	// select SS entry
-	name = "_" + name
-	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
-	if err != nil {
-		return nil, err
-	}
-	_, _, err = p.response(code)
-	if err != nil {
-		return nil, err
-	}
-
-	// get public key from selected entry
-	args := p.encode([]Tag{{0xd0, []byte{0x00}}})
-	_, code, err = p.execute(stkAppKeyGet, len(args)/2, args)
-	if err != nil {
-		return nil, err
-	}
-
-	data, _, err := p.response(code)
-	if err != nil {
-		return nil, err
-	}
-
-	tags, err := p.decode(data)
-	if err != nil {
-		return nil, err
-	}
-
-	pubkey, err := p.findTag(tags, 0xc3)
-	if err != nil {
-		return nil, err
-	}
-
-	// return the public key and remove the static 0xc4 from the beginning
-	return pubkey[1:], nil
 }
 
 // Execute a sign operation using the key selected by the given name. Depending on
