@@ -16,16 +16,13 @@ This most often will be a modem that supports the standard `AT+CSIM` command (3G
 
 ### Requirements
 
-- a SIM card with the ubirch applet installed
+- a [SIM card](https://1nce.com) with the ubirch applet installed
+- basic connectivity (via mobile network, wifi or other)
 - a Modem that supports the AT+CSIM commands to send APDU commands to the SIM card
-- connectivity
 
-## Key Generation
+## Support
 
-Generating a key, always use the UUID as the title of the key entry and use the key ID
-to access the key (signing key and verifying key need two different IDs!). The UUID will
-be automatically placed into the [UPP](//github.com/ubirch/ubirch-protocol#basic-message-format)
-as the required identity id.
+If you are having problems, please contact us using our [help desk](https://ubirch.atlassian.net/servicedesk/customer/portal/1).
 
 ## Signing/Chaining messages
 
@@ -69,6 +66,15 @@ TODO:
 - Verify the [UPP](//github.com/ubirch/ubirch-protocol#basic-message-format) and check blockchain anchoring (`//niomon.demo.ubirch.com/api/verify`)*
 
 > __*__ Sending data to the ubirch backend requires an API token. 
+
+## Development
+
+### Key Generation
+
+Generating a key, always use the UUID as the title of the key entry and use the key ID
+to access the key (signing key and verifying key need two different IDs!). The UUID will
+be automatically placed into the [UPP](//github.com/ubirch/ubirch-protocol#basic-message-format)
+as the required identity id.
 
 # LICENSE
 
