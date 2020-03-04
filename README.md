@@ -1,4 +1,4 @@
-![ubirch logo](https://ubirch.de/wp-content/uploads/2018/10/cropped-uBirch_Logo.png)
+![blockchain on a sim](https://github.com/ubirch/ubirch-protocol-sim/raw/master/docs/ubirch-protocol-sim.png)
 
 # ubirch-protocol on a SIM
 
