@@ -1,4 +1,4 @@
-![blockchain on a sim](https://github.com/ubirch/ubirch-protocol-sim/raw/master/docs/ubirch-protocol-sim.png)
+[![blockchain on a sim](https://github.com/ubirch/ubirch-protocol-sim/raw/master/docs/ubirch-protocol-sim.png)](https://ubirch.com)
 
 # ubirch-protocol on a SIM
 
