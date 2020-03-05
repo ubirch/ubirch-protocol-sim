@@ -10,7 +10,7 @@ from network import WLAN, LTE
 
 from helpers import wifi_connect, nb_iot_attach, nb_iot_connect, set_time, get_certificate, register_key, post, \
     bootstrap
-from ubirch import Protocol
+from ubirch import SimProtocol
 from uuid import UUID
 
 print("** ubirch protocol (SIM) ...")
@@ -57,11 +57,11 @@ if not set_time():
     time.sleep(5)
     machine.reset()
 
-# the pycom module restricts the size of SIM command lines, use only single character name!
-device_name = "A"
+# the pycom module restricts the size of SIM command lines, use only single character name! TODO check if "ukey" works
+device_name = "ukey"
 
 # initialize the ubirch protocol interface
-ubirch = Protocol(lte=lte, at_debug=config["sim"]["debug"])
+ubirch = SimProtocol(lte=lte, at_debug=config["sim"]["debug"])
 
 # get IMSI from SIM
 imsi = ubirch.get_imsi()
@@ -85,7 +85,8 @@ if not ubirch.sim_auth(pin):
     raise Exception("PIN not accepted")
 
 # get X.509 certificate from SIM
-csr = ubirch.get_certificate(device_name)
+cert_id = "ucrt"
+csr = ubirch.get_certificate(cert_id)
 print("X.509 certificate [base64]: " + binascii.b2a_base64(csr).decode().rstrip('\n'))
 print("X.509 certificate [hex]   : " + binascii.hexlify(csr).decode())
 

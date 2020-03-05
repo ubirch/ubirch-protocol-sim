@@ -8,7 +8,7 @@ import machine
 from network import WLAN, LTE
 
 import asn1
-from ubirch import Protocol
+from ubirch import SimProtocol
 from uuid import UUID
 
 
@@ -82,7 +82,7 @@ def asn1tosig(data: bytes):
     return part1 + part2
 
 
-def get_certificate(device_id: str, device_uuid: UUID, proto: Protocol) -> str:
+def get_certificate(device_id: str, device_uuid: UUID, proto: SimProtocol) -> str:
     """
     Get a signed json with the key registration request until CSR handling is in place.
     """
