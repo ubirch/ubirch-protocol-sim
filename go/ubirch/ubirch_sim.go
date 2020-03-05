@@ -267,7 +267,6 @@ func (p *Protocol) GetIMSI() (string, error) {
 
 func (p *Protocol) GetUUID(name string) (uuid.UUID, error) {
 	// select SS entry
-	name = "_" + name
 	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
 	if err != nil {
 		return uuid.New(), err
@@ -304,10 +303,10 @@ func (p *Protocol) GenerateKey(name string, uid uuid.UUID) error {
 	}
 
 	args := p.encode([]Tag{
-		{0xC4, []byte("_" + name)}, // Entry ID (public key)
+		{0xC4, []byte(name)},       // Entry ID (public key)
 		{0xC0, uidBytes},           // Entry title
 		{0xC1, []byte{0x03}},       // Permission: Read & Write Allowed
-		{0xC4, []byte(name)},       // Entry ID (private key))
+		{0xC4, []byte("_" + name)}, // Entry ID (private key))
 		{0xC0, uidBytes},           // Entry title
 		{0xC1, []byte{0x02}},       // Permission: Only Write Allowed
 	})
@@ -349,14 +348,16 @@ func (p *Protocol) PutKey(name string, uid uuid.UUID, pubKey []byte) error {
 // Returns a byte array with the raw bytes of the public key.
 func (p *Protocol) GetKey(name string) ([]byte, error) {
 	// select SS entry
-	name = "_" + name
 	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
 	if err != nil {
 		return nil, err
 	}
-	_, _, err = p.response(code)
+	_, code, err = p.response(code)
 	if err != nil {
 		return nil, err
+	}
+	if code != ApduOk {
+		return nil, errors.New(fmt.Sprintf("APDU error: %x, selecting entry failed", code))
 	}
 
 	// get public key from selected entry
@@ -403,8 +404,8 @@ func (p *Protocol) GenerateCSR(name string, uid uuid.UUID) ([]byte, error) {
 	})
 
 	args := p.encode([]Tag{
-		{0xC4, []byte("_" + name)}, // Public Key ID of the key to be used as the Public Key carried in the CSR
-		{0xC4, []byte(name)},       // Private Key ID of the key to be used for signing the CSR
+		{0xC4, []byte(name)},       // Public Key ID of the key to be used as the Public Key carried in the CSR
+		{0xC4, []byte("_" + name)}, // Private Key ID of the key to be used for signing the CSR
 		{0xE5, certArgs},           // Certification Request parameters
 	})
 
@@ -434,17 +435,17 @@ func (p *Protocol) GenerateCSR(name string, uid uuid.UUID) ([]byte, error) {
 }
 
 // Store a X.509 certificate in the secure storage of the SIM
-func (p *Protocol) StoreCertificate(name string, uid uuid.UUID, cert []byte) error {
+func (p *Protocol) StoreCertificate(entryID string, uid uuid.UUID, cert []byte) error {
 	uidBytes, err := uid.MarshalBinary()
 	if err != nil {
 		return err
 	}
 
 	args := p.encode([]Tag{
-		{0xC4, []byte(name + "_c")}, // Entry ID
-		{0xC0, uidBytes},            // Entry title
-		{0xC1, []byte{0x03}},        // Permission: Read & Write Allowed
-		{0xC3, cert},                // Certificate
+		{0xC4, []byte(entryID)}, // Entry ID
+		{0xC0, uidBytes},        // Entry title
+		{0xC1, []byte{0x03}},    // Permission: Read & Write Allowed
+		{0xC3, cert},            // Certificate
 	})
 
 	for finalBit := 0; len(args) > 0; {
@@ -467,20 +468,19 @@ func (p *Protocol) StoreCertificate(name string, uid uuid.UUID, cert []byte) err
 	return nil
 }
 
-func (p *Protocol) UpdateCertificate(name string, newCert []byte) error {
+func (p *Protocol) UpdateCertificate(entry_id string, newCert []byte) error {
 	args := p.encode([]Tag{
 		{0xC3, newCert},
 	})
 
 	// select SS entry
-	name += "_c" // TODO use actual entry ID for certificate
-	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
+	_, code, err := p.execute(stkAppSsEntrySelect, len(entry_id), hex.EncodeToString([]byte(entry_id)))
 	if err != nil {
 		return err
 	}
 	_, code, _ = p.response(code)
 	if code != ApduOk {
-		log.Printf("selecting SS entry (%s) failed", name)
+		log.Printf("selecting SS entry (%s) failed", entry_id)
 		return errors.New(fmt.Sprintf("APDU error: %x", code))
 	}
 
@@ -505,18 +505,17 @@ func (p *Protocol) UpdateCertificate(name string, newCert []byte) error {
 	return nil
 }
 
-// Get the X.509 certificate for a given name from the SIM storage.
+// Get the X.509 certificate for a given entry ID from the SIM storage.
 // Returns a byte array with the raw bytes of the certificate.
-func (p *Protocol) GetCertificate(name string) ([]byte, error) {
+func (p *Protocol) GetCertificate(entryID string) ([]byte, error) {
 	// select SS entry
-	name += "_c" // TODO use actual entry ID for certificate
-	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
+	_, code, err := p.execute(stkAppSsEntrySelect, len(entryID), hex.EncodeToString([]byte(entryID)))
 	if err != nil {
 		return nil, err
 	}
 	_, code, _ = p.response(code)
 	if code != ApduOk {
-		log.Printf("selecting SS entry (%s) failed", name)
+		log.Printf("selecting SS entry (%s) failed", entryID)
 		return nil, errors.New(fmt.Sprintf("APDU error: %x", code))
 	}
 
@@ -554,8 +553,8 @@ func (p *Protocol) GetCertificate(name string) ([]byte, error) {
 // the raw signature in case protocol is 0.
 func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign bool) ([]byte, error) {
 	args := p.encode([]Tag{
-		{0xc4, []byte(name)}, // Entry ID
-		{0xd0, []byte{0x21}}, // Algorithm to be used: ALG_ECDSA_SHA_256
+		{0xc4, []byte("_" + name)}, // Entry ID of signing key
+		{0xd0, []byte{0x21}},       // Algorithm to be used: ALG_ECDSA_SHA_256
 	})
 	if hashBeforeSign {
 		protocol |= 0x40 // set flag for automatic hashing
@@ -600,7 +599,7 @@ func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign
 // Returns true or false.
 func (p *Protocol) Verify(name string, value []byte, protocol byte) (bool, error) {
 	args := p.encode([]Tag{
-		{0xc4, []byte("_" + name)},
+		{0xc4, []byte(name)},
 		{0xd0, []byte{0x21}},
 	})
 	_, code, err := p.execute(stkAppVerifyInit, protocol, len(args)/2, args)

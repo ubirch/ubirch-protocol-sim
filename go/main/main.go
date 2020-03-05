@@ -51,9 +51,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("loading configuration failed: %v", err)
 	}
-	sim := ubirch.Protocol{SimInterface: &serialPort, Debug: true}
-
-	name := "A"
+	sim := ubirch.Protocol{SimInterface: &serialPort, Debug: conf.Sim.Debug}
 
 	// get SIM IMSI
 	imsi, err := sim.GetIMSI()
@@ -112,14 +110,14 @@ func main() {
 	//	log.Println("updated certificate on SIM")
 	//}
 	//
-	//// get X.509 certificate from SIM card
-	//simCert, err := sim.GetCertificate(name)
-	//if err != nil {
-	//	log.Fatalf("retrieving certificate from SIM failed. %s", err)
-	//} else {
-	//	log.Printf("retrieved certificate from SIM: %x", simCert)
-	//}
-	//
+	// get X.509 certificate from SIM card
+	cert_name := "ucrt"
+	simCert, err := sim.GetCertificate(cert_name)
+	if err != nil {
+		log.Fatalf("retrieving certificate from SIM failed. %s", err)
+	} else {
+		log.Printf("retrieved certificate from SIM: %x", simCert)
+	}
 	//// register public key using certificate from SIM
 	//statusCode, respBody, err := post(simCert, conf.KeyService, map[string]string{"Content-Type": "application/json"})
 	//if err != nil {
@@ -131,23 +129,24 @@ func main() {
 	//}
 
 	// get the public key (see next part, registering)
-	key, err := sim.GetKey(name)
+	key_name := "ukey"
+	key, err := sim.GetKey(key_name)
 	if err != nil {
-		log.Fatalf("no key entry found for %s", name)
+		log.Fatalf("no key entry found for %s", key_name)
 	} else {
 		log.Printf("public key: base64 %s", base64.StdEncoding.EncodeToString(key))
 		log.Printf("public key: hex    %s", hex.EncodeToString(key))
 	}
 
 	// get the UUID
-	uid, err := sim.GetUUID(name)
+	uid, err := sim.GetUUID(key_name)
 	if err != nil {
 		log.Fatalf("getting UUID from certificate failed. %s", err)
 	}
 	log.Printf("UUID: %s", uid.String())
 
 	// register public key
-	cert, err := getSignedCertificate(&sim, name, uid)
+	cert, err := getSignedCertificate(&sim, key_name, uid)
 	if err != nil {
 		log.Printf("could not generate certificate: %v", err)
 	} else {
@@ -182,7 +181,7 @@ func main() {
 
 		// create A signed UPP message and send it to the ubirch backend
 		//upp, err := sim.Sign(name, digest[:], ubirch.Signed, false)
-		upp, err := sim.Sign(name, pRendered, ubirch.Signed, true) // use automatic hashing
+		upp, err := sim.Sign(key_name, pRendered, ubirch.Signed, true) // use automatic hashing
 		if err != nil {
 			log.Printf("signing failed: %v", err)
 		} else {
@@ -191,7 +190,7 @@ func main() {
 			statusCode, respBody, err := post(upp, conf.Niomon, map[string]string{
 				"X-Ubirch-Hardware-Id": uid.String(),
 				"X-Ubirch-Auth-Type":   "ubirch",
-				"X-Ubirch-Credential":  base64.StdEncoding.EncodeToString([]byte(conf.Api.Upp)),
+				"X-Ubirch-Credential":  base64.StdEncoding.EncodeToString([]byte(conf.Password)),
 			})
 			if err != nil {
 				log.Printf("unable to read response body: %v", err)
@@ -203,7 +202,7 @@ func main() {
 		}
 
 		// try to verify the upp locally
-		ok, err := sim.Verify(name, upp, ubirch.Signed)
+		ok, err := sim.Verify(key_name, upp, ubirch.Signed)
 		if err != nil {
 			log.Printf("verification (local) failed with error: %v", err)
 		} else if ok {
@@ -228,7 +227,7 @@ func main() {
 
 			// create a chained UPP message and send it to the ubirch backend
 			//upp, err := sim.Sign(name, digest[:], ubirch.Chained, false)
-			upp, err := sim.Sign(name, pRendered, ubirch.Chained, true) // use automatic hashing
+			upp, err := sim.Sign(key_name, pRendered, ubirch.Chained, true) // use automatic hashing
 			if err != nil {
 				log.Printf("signing failed: %v", err)
 			} else {
@@ -237,7 +236,7 @@ func main() {
 				statusCode, respBody, err := post(upp, conf.Niomon, map[string]string{
 					"X-Ubirch-Hardware-Id": uid.String(),
 					"X-Ubirch-Auth-Type":   "ubirch",
-					"X-Ubirch-Credential":  base64.StdEncoding.EncodeToString([]byte(conf.Api.Upp)),
+					"X-Ubirch-Credential":  base64.StdEncoding.EncodeToString([]byte(conf.Password)),
 				})
 				if err != nil {
 					log.Printf("unable to read response body: %v", err)
