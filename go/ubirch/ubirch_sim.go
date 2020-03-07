@@ -45,6 +45,7 @@ const (
 	stkAppRandom        = "80B900%02X00"   // APDU Generate Secure Random ([1], 2.1.3)
 	stkAppSsEntrySelect = "80A50000%02X%s" // APDU Select SS Entry ([1], 2.1.4)
 	stkAppDeleteAll     = "80E50000"       // APDU Delete All SS Entries
+	stkAppSsEntryIdGet  = "80B10000%02X%s" // APDU Get SS Entry ID
 
 	// Ubirch specific commands
 	stkAppKeyGenerate = "80B28000%02X%s"   // APDU Generate an ECC Key Pair ([1], 2.1.7)
@@ -265,61 +266,6 @@ func (p *Protocol) GetIMSI() (string, error) {
 	return imsi[0], nil
 }
 
-func (p *Protocol) GetUUID(name string) (uuid.UUID, error) {
-	// select SS entry
-	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
-	if err != nil {
-		return uuid.New(), err
-	}
-	data, code, err := p.response(code)
-	if err != nil {
-		return uuid.New(), err
-	}
-	if code != ApduOk {
-		return uuid.New(), errors.New(fmt.Sprintf("APDU error: %x, selecting SS entry (%s) failed", code, name))
-	}
-	tags, err := p.decode(data)
-	if err != nil {
-		return uuid.New(), err
-	}
-	entryTitle, err := p.findTag(tags, byte(0xc0))
-	if err != nil {
-		return uuid.New(), err
-	}
-	uid, err := uuid.FromBytes(entryTitle)
-	if err != nil {
-		return uuid.New(), err
-	}
-	return uid, nil
-}
-
-// Generate a key pair on the SIM card and store it using the given name and the UUID that is
-// later used for the ubirch-protocol. The name for public keys is prefixed with an underscore
-// ("_") and the private key gets the name as is. This API automatically selects the right name.
-func (p *Protocol) GenerateKey(name string, uid uuid.UUID) error {
-	uidBytes, err := uid.MarshalBinary()
-	if err != nil {
-		return err
-	}
-
-	args := p.encode([]Tag{
-		{0xC4, []byte(name)},       // Entry ID (public key)
-		{0xC0, uidBytes},           // Entry title
-		{0xC1, []byte{0x03}},       // Permission: Read & Write Allowed
-		{0xC4, []byte("_" + name)}, // Entry ID (private key))
-		{0xC0, uidBytes},           // Entry title
-		{0xC1, []byte{0x02}},       // Permission: Only Write Allowed
-	})
-	_, code, err := p.execute(stkAppKeyGenerate, len(args)/2, args)
-	if err != nil {
-		return err
-	}
-	if code != ApduOk {
-		return errors.New(fmt.Sprintf("APDU error: %x, generate key failed", code))
-	}
-	return err
-}
-
 // [WIP] Store an ECC public key to the SIM cards secure storage
 func (p *Protocol) PutKey(name string, uid uuid.UUID, pubKey []byte) error {
 	uidBytes, err := uid.MarshalBinary()
@@ -386,7 +332,92 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 	return pubkey[1:], nil
 }
 
-func (p *Protocol) GenerateCSR(name string, uid uuid.UUID) ([]byte, error) {
+// Get the UUID for a given name from the SIM storage.
+func (p *Protocol) GetUUID(name string) (uuid.UUID, error) {
+	// select SS entry
+	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
+	if err != nil {
+		return uuid.New(), err
+	}
+	data, code, err := p.response(code)
+	if err != nil {
+		return uuid.New(), err
+	}
+	if code != ApduOk {
+		return uuid.New(), errors.New(fmt.Sprintf("APDU error: %x, selecting SS entry (%s) failed", code, name))
+	}
+	tags, err := p.decode(data)
+	if err != nil {
+		return uuid.New(), err
+	}
+	entryTitle, err := p.findTag(tags, byte(0xc0))
+	if err != nil {
+		return uuid.New(), err
+	}
+	uid, err := uuid.FromBytes(entryTitle)
+	if err != nil {
+		return uuid.New(), err
+	}
+	return uid, nil
+}
+
+// Get the public key for a given UUID from the SIM storage.
+func (p *Protocol) GetVerificationKey(uid uuid.UUID) ([]byte, error) {
+	uidBytes, err := uid.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	// get the entry ID that has UUID as entry title
+	_, code, err := p.execute(stkAppSsEntryIdGet, len(uidBytes), hex.EncodeToString(uidBytes))
+	if err != nil {
+		return nil, err
+	}
+	data, code, err := p.response(code)
+	if err != nil {
+		return nil, err
+	}
+	if code != ApduOk {
+		return nil, errors.New(fmt.Sprintf("Retrieving key entry ID for UUID %s failed. APDU error: %x", uid.String(), code))
+	}
+	tags, err := p.decode(data)
+	if err != nil {
+		return nil, err
+	}
+	keyName, err := p.findTag(tags, byte(0xc4))
+	log.Printf("retrieved entry ID: %s", string(keyName))
+
+	// get the key from this entry and return it
+	return p.GetKey(string(keyName))
+}
+
+// Generate a key pair on the SIM card and store it using the given name and the UUID that is
+// later used for the ubirch-protocol. The name for public keys is prefixed with an underscore
+// ("_") and the private key gets the name as is. This API automatically selects the right name.
+func (p *Protocol) GenerateKey(name string, uid uuid.UUID) error {
+	uidBytes, err := uid.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	args := p.encode([]Tag{
+		{0xC4, []byte(name)},       // Entry ID (public key)
+		{0xC0, uidBytes},           // Entry title
+		{0xC1, []byte{0x03}},       // Permission: Read & Write Allowed
+		{0xC4, []byte("_" + name)}, // Entry ID (private key))
+		{0xC0, uidBytes},           // Entry title
+		{0xC1, []byte{0x02}},       // Permission: Only Write Allowed
+	})
+	_, code, err := p.execute(stkAppKeyGenerate, len(args)/2, args)
+	if err != nil {
+		return err
+	}
+	if code != ApduOk {
+		return errors.New(fmt.Sprintf("APDU error: %x, generate key failed", code))
+	}
+	return err
+}
+
+func (p *Protocol) GenerateCSR(entryID string, uid uuid.UUID) ([]byte, error) {
 	certAttributes := p.encodeBinary([]Tag{
 		{0xD4, []byte("DE")},
 		{0xD5, []byte("Berlin")},
@@ -404,9 +435,9 @@ func (p *Protocol) GenerateCSR(name string, uid uuid.UUID) ([]byte, error) {
 	})
 
 	args := p.encode([]Tag{
-		{0xC4, []byte(name)},       // Public Key ID of the key to be used as the Public Key carried in the CSR
-		{0xC4, []byte("_" + name)}, // Private Key ID of the key to be used for signing the CSR
-		{0xE5, certArgs},           // Certification Request parameters
+		{0xC4, []byte(entryID)},       // Public Key ID of the key to be used as the Public Key carried in the CSR
+		{0xC4, []byte("_" + entryID)}, // Private Key ID of the key to be used for signing the CSR
+		{0xE5, certArgs},              // Certification Request parameters
 	})
 
 	_, code, err := p.execute(stkAppCsrGenerateFirst, len(args)/2, args) // Generate CSR
@@ -468,19 +499,19 @@ func (p *Protocol) StoreCertificate(entryID string, uid uuid.UUID, cert []byte) 
 	return nil
 }
 
-func (p *Protocol) UpdateCertificate(entry_id string, newCert []byte) error {
+func (p *Protocol) UpdateCertificate(entryID string, newCert []byte) error {
 	args := p.encode([]Tag{
 		{0xC3, newCert},
 	})
 
 	// select SS entry
-	_, code, err := p.execute(stkAppSsEntrySelect, len(entry_id), hex.EncodeToString([]byte(entry_id)))
+	_, code, err := p.execute(stkAppSsEntrySelect, len(entryID), hex.EncodeToString([]byte(entryID)))
 	if err != nil {
 		return err
 	}
 	_, code, _ = p.response(code)
 	if code != ApduOk {
-		log.Printf("selecting SS entry (%s) failed", entry_id)
+		log.Printf("selecting SS entry (%s) failed", entryID)
 		return errors.New(fmt.Sprintf("APDU error: %x", code))
 	}
 
