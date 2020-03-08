@@ -47,6 +47,7 @@ STK_APP_SELECT = '00A4040010{}'  # APDU Select Application ([1], 2.1.1)
 STK_APP_RANDOM = '80B900{:02X}00'  # APDU Generate Secure Random ([1], 2.1.3)
 STK_APP_SS_SELECT = '80A50000{:02X}{}'  # APDU Select SS Entry ([1], 2.1.4)
 STK_APP_DELETE_ALL = '80E50000'  # APDU Delete All SS Entries
+STK_APP_SS_ENTRY_ID_GET = '80B10000{:02X}{}'  # APDU Get SS Entry ID
 
 # ubirch specific commands
 STK_APP_KEY_GENERATE = '80B28000{:02X}{}'  # APDU Generate Key Pair ([1], 2.1.7)
@@ -326,13 +327,31 @@ class SimProtocol:
         self.lte.pppsuspend()
         # select SS public key entry
         (data, code) = self._select_ss_entry(entry_id)
+        self.lte.pppresume()
         if code == STK_OK:
             # get the UUID
-            self.lte.pppresume()
             uuid_bytes = [tag[1] for tag in self._decode_tag(data) if tag[0] == 0xc0][0]
             return UUID(uuid_bytes)
 
+        raise Exception(code)
+
+    def get_verification_key(self, uuid: UUID) -> bytes:
+        """
+        Get the public key for a given UUID from the SIM storage.
+        :param uuid: the entry title of the verification key to look for
+        :return: the public key bytes
+        """
+        if self.DEBUG: print("getting verification key for UUID " + str(uuid))
+        self.lte.pppsuspend()
+        # get the entry ID that has UUID as entry title
+        (data, code) = self._execute(STK_APP_SS_ENTRY_ID_GET.format(int(len(uuid.hex) / 2), uuid.hex))
+        (data, code) = self._get_response(code)
         self.lte.pppresume()
+        if code == STK_OK:
+            key_name = [tag[1] for tag in self._decode_tag(data) if tag[0] == 0xc4][0]
+            # get the key with that entry ID
+            return self.get_key(key_name.decode())
+
         raise Exception(code)
 
     def get_key(self, entry_id: str) -> bytes:
