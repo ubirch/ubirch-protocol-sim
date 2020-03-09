@@ -1,14 +1,15 @@
 package ubirch
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	"log"
 	"strconv"
 	"strings"
+
+	"github.com/google/uuid"
 )
-import "encoding/hex"
 
 type SimInterface interface {
 	Send(cmd string) ([]string, error)
@@ -496,7 +497,7 @@ func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign
 		return nil, err
 	}
 	if code != ApduOk {
-		return nil, errors.New(fmt.Sprintf("sign init failed: %v", err))
+		return nil, errors.New(fmt.Sprintf("sign init failed: %v", code))
 	}
 
 	data := hex.EncodeToString(value)
@@ -539,7 +540,7 @@ func (p *Protocol) Verify(name string, value []byte, protocol byte) (bool, error
 		return false, err
 	}
 	if code != ApduOk {
-		return false, errors.New(fmt.Sprintf("verify init failed: %v", err))
+		return false, errors.New(fmt.Sprintf("verify init failed: %v", code))
 	}
 
 	data := hex.EncodeToString(value)
