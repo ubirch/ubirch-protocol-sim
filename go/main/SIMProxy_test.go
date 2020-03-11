@@ -2,8 +2,12 @@ package main
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/sha256"
 	"encoding/hex"
 	"log"
+	"math/big"
 	"testing"
 
 	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
@@ -14,6 +18,28 @@ const (
 	SIMProxySerialPort = "/dev/ttyACM0"
 	SIMProxyBaudrate   = 115200
 )
+
+//Do a verification of the UPP signature with the go ecdsa library
+func verifyUPPSignature(t *testing.T, uppBytes []byte, pubkeyBytes []byte) bool {
+	//Extract signature, data, and hash of data from UPP
+	signature := uppBytes[len(uppBytes)-64:]
+	dataToHash := uppBytes[:len(uppBytes)-66]
+	hash := sha256.Sum256(dataToHash)
+
+	//Set variables so they are in the format the ecdsa lib expects them
+	x := &big.Int{}
+	x.SetBytes(pubkeyBytes[0:32])
+	y := &big.Int{}
+	y.SetBytes(pubkeyBytes[32:64])
+	pubkey := ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}
+
+	r, s := &big.Int{}, &big.Int{}
+	r.SetBytes(signature[:32])
+	s.SetBytes(signature[32:])
+
+	//Do the verification and return result
+	return ecdsa.Verify(&pubkey, hash[:], r, s)
+}
 
 func openAndInitSIMProxy(t *testing.T, port string, baud int) *ubirch.Protocol {
 
@@ -67,7 +93,7 @@ func TestSIMProxyRandom(t *testing.T) {
 	defer closeSIMProxy(t, sim)
 
 	// get random data from SIM
-	data, err := sim.Random(10)
+	data, err := sim.Random(5)
 	if err != nil {
 		t.Errorf("Failed to receive random data: %v\n", err)
 	}
@@ -76,7 +102,7 @@ func TestSIMProxyRandom(t *testing.T) {
 
 func TestSIMProxyGetKey(t *testing.T) {
 	const SIMProxyName = "Q"
-	expectedPubKey, err := hex.DecodeString("0faa26f35c1b50d79fd07ceca939a421b2f5947df0c98e830d6417ffbabd453564a807f6658314f6e1584ff8d17875cb3c032326200d3a25a99dab76c4514a52")
+	expectedPubKey, err := hex.DecodeString("2f13190ebfe4164beff5e92eb182f54cc18101968d149cd8dd302d073d2629907242840579fd394cedde91ae94d649ba4b8c45950148044806ed74a005cca762")
 	if err != nil {
 		t.Fatalf("Failed to parse expected public key: %v, string was: %v", err, expectedPubKey)
 	}
