@@ -139,54 +139,63 @@ func TestSIMProxySign(t *testing.T) {
 		inputData      string
 		protocol       byte
 		hashBeforeSign bool
+		shouldFail     bool
 	}{
 		{
-			"32Bytes-Signed-SIMHash",
-			"adb6b54894e4c880ceb90f779956e401b989dfca3db6f124a2ae01e85c562e8e",
-			ubirch.Signed,
-			true,
-		},
-		{ //This fails although it should work
-			"64Bytes-Signed-SIMHash",
-			"bda39c243912e5c8e811cc489479d2a2ac7b6efef5b57288bf03b74717890c7c9db6b54894e4c880ceb90f779956e401b989dfca3db6f124a2ae01e85c562e8e",
-			ubirch.Signed,
-			true,
-		},
-		{ //This fails although it should work
-			"128Bytes-Signed-SIMHash",
-			"75ec57fff9d76bff8e2cda2844eb18ea0ab0234ea38d16078adcb4d26126fbc1c14389ddcefecd7e6f7a4040b5b78841a967b21fa3edda8d34653e0de7e7ce1fb2dff86ea5f62cb4f607d332797070f836a611dec54f7559dba9b4a71cdf41ec951021e370db82fb2df6196778e95e6084fe25f861ba28d24bc6400387adb65f",
-			ubirch.Signed,
-			true,
-		},
-		{ //This fails although it should work
-			"256Bytes-Signed-SIMHash",
-			"b2bdea5d756fceca74c5d6662fdbb5276c461907fe282da5a8f2c324d036219d6f414daee4fba0c7a9308f0d2d486cf1a28c193c3bfad8415fcfd9ccfa569921af19d1758b4144a5f6c7de78b44d6b3cd4b3bf18602ffb148f98b73cb2eec5725a567f1cf4b3465b2e82177aa9d5f4f07c8c3ed7207c62c604f121f09dd007c5d12d20450ccacad52f044fc3ee5bf9a57bff936a68fe69738ae14f2220d0bdbd2be23142afe03a975a53b06952eb2fed67cf04389872d38441b15950530a86175dd3787a398c62bb255636b52bcf77558338b590468f3f93e519761b8ae6826b932f9866e0e02364668f98297f51d096e71c7c36d5b60a6f2e11ba343f1c87e8",
-			ubirch.Signed,
-			true,
-		},
-		{ //This fails although it should work
-			"512Bytes-Signed-SIMHash",
-			"9ffe8edd873f3c409152f51f4614a31517106f42bea640cf50cde0d9327893def4ee85b842dde5f913b4b3e4764d98c61446691ba283a51a443659001b15dfcaa8298e0a5ee14f03748b2eabee6f9567710a83d90be413dcd2fa83d45f2ee2cc44be5161356e2d8ebbed11d851d6e9d1558672f5b7397e102f2909f07ed817cc44608c786c4aaf665db94babe4215f5e93b13bd8c56f1d2d51223143400a5d6102da09e20f5ce498d764efe27120a9dbd029ad4342c4151bb477029f70337691808da857996910110181007475a803bb2c892e279309a735d1953654bd1411cff0f9d92edf96baea11638b5c32d62e101f9b6c703bfa4fa9ca413d1037c229c67be1165f0d50e7b7126e17c9ad42d68ea438f65d09e1905b467a5518dcf3dfccebc662e129c6e6af3cfa42c5332b131582620b048e2917c56026649bd3ce3758c8e2fe36ceb7aa8be45d4b137e426dc741864d8a8469f8ae2ee1b8a06ab3ba2e4ad978e812f3927a22e0d20dfefe92887392119fca9c494eb0f2de430b1c4b01956b24ef48f9ca55bff3521402447b545154f02c59507e7031837cb811cc3b3cf3fc93f4ba8e29b0332858d364febba68222fe2f2766e1aa8f0af5c6a5df18ce7964032f1a04dca2af2585ecb4d5c388473757517360e663f4a74d30e54ddd16f9ae60106c9636dbe1f84efffc940058100bc380c03c1c9a029055953c01500a",
-			ubirch.Signed,
-			true,
+			testName:       "32Bytes-Signed-SIMHash",
+			inputData:      "adb6b54894e4c880ceb90f779956e401b989dfca3db6f124a2ae01e85c562e8e",
+			protocol:       ubirch.Signed,
+			hashBeforeSign: true,
+			shouldFail:     false,
 		},
 		{
-			"543Bytes-Signed-SIMHash",
-			"3fff144ed97ccd4a5bade5c8e3a3716b695b6c62f78828ef9f66fd21a0c1e60ee92d51af4192ec3eae8b716f0b7d35921af0fcedfe5cd15b89dbee9a7fd80c76bdb6d00f9f03d0e2351e5d744548fdf68fea8ca2e8f9962f754f934fb876bbddf3f1dc237f6fabcffbf01ce89e61a95f9921be578a741675511a75a3e857252fb2ec35e52334b5ba28fe3d2510a9f45f5c192eadaa49d1f5d2434c4924806be710b90c9161f78a2f0490826ef4f643dea9237ac3579c0e5eb1ec4c5866585aa59dfcf80c1d7bed3991bef277e9b33db8b7833f1fcaa9c5e4722c5505b902e004b6cd5626da8987c05291b8584c564f16ddc05a5140817254355abe716b3e0c3ca28d049720f1d2e12e4ef055e0e1c98981acf23200d76c10eb9a788b9b35b3797a9473806f4b59248cf56c2391e411a52dea86913293df713100dc4b7306c521604b09addde6a8c471c505f4c58ec7a7131dc67141b8fa0df7d128e0095eb6e88efb9f0a0c29d8abdd92e787136d71733a5596a05adaa43c31261e902a6e8f5937f3f043bf5f8a75f8df9c2f860c0b641f855a25be2760351e9397eea3c292d060835b59736c68cea8f40a922f01f067058d495d08cf5117dff853299d1dbdca9ddff03f01f07c63b057f518a0c8ed43cca4dd28695d6e2b118c819f12b368cf3396f950ef59865755d915e73093775cdcea1e7b4e675470c8ed51354e9d4d60c989a144f7112042024365a434528db782f8b5ed7638feaeac0521a68dc442",
-			ubirch.Signed,
-			true,
+			testName:       "64Bytes-Signed-SIMHash",
+			inputData:      "bda39c243912e5c8e811cc489479d2a2ac7b6efef5b57288bf03b74717890c7c9db6b54894e4c880ceb90f779956e401b989dfca3db6f124a2ae01e85c562e8e",
+			protocol:       ubirch.Signed,
+			hashBeforeSign: true,
+			shouldFail:     false,
 		},
-		{ //This should fail, but it does not (Input is too long for a hash)
-			"37Bytes-Signed-noSIMHash",
-			"1234567890adb6b54894e4c880ceb90f779956e401b989dfca3db6f124a2ae01e85c562e8e",
-			ubirch.Signed,
-			false,
+		{
+			testName:       "128Bytes-Signed-SIMHash",
+			inputData:      "75ec57fff9d76bff8e2cda2844eb18ea0ab0234ea38d16078adcb4d26126fbc1c14389ddcefecd7e6f7a4040b5b78841a967b21fa3edda8d34653e0de7e7ce1fb2dff86ea5f62cb4f607d332797070f836a611dec54f7559dba9b4a71cdf41ec951021e370db82fb2df6196778e95e6084fe25f861ba28d24bc6400387adb65f",
+			protocol:       ubirch.Signed,
+			hashBeforeSign: true,
+			shouldFail:     false,
 		},
-		{ //This should fail, but it does not (Input is too short for a hash)
-			"2Bytes-Signed-noSIMHash",
-			"2e8e",
-			ubirch.Signed,
-			false,
+		{
+			testName:       "256Bytes-Signed-SIMHash",
+			inputData:      "b2bdea5d756fceca74c5d6662fdbb5276c461907fe282da5a8f2c324d036219d6f414daee4fba0c7a9308f0d2d486cf1a28c193c3bfad8415fcfd9ccfa569921af19d1758b4144a5f6c7de78b44d6b3cd4b3bf18602ffb148f98b73cb2eec5725a567f1cf4b3465b2e82177aa9d5f4f07c8c3ed7207c62c604f121f09dd007c5d12d20450ccacad52f044fc3ee5bf9a57bff936a68fe69738ae14f2220d0bdbd2be23142afe03a975a53b06952eb2fed67cf04389872d38441b15950530a86175dd3787a398c62bb255636b52bcf77558338b590468f3f93e519761b8ae6826b932f9866e0e02364668f98297f51d096e71c7c36d5b60a6f2e11ba343f1c87e8",
+			protocol:       ubirch.Signed,
+			hashBeforeSign: true,
+			shouldFail:     false,
+		},
+		{
+			testName:       "512Bytes-Signed-SIMHash",
+			inputData:      "9ffe8edd873f3c409152f51f4614a31517106f42bea640cf50cde0d9327893def4ee85b842dde5f913b4b3e4764d98c61446691ba283a51a443659001b15dfcaa8298e0a5ee14f03748b2eabee6f9567710a83d90be413dcd2fa83d45f2ee2cc44be5161356e2d8ebbed11d851d6e9d1558672f5b7397e102f2909f07ed817cc44608c786c4aaf665db94babe4215f5e93b13bd8c56f1d2d51223143400a5d6102da09e20f5ce498d764efe27120a9dbd029ad4342c4151bb477029f70337691808da857996910110181007475a803bb2c892e279309a735d1953654bd1411cff0f9d92edf96baea11638b5c32d62e101f9b6c703bfa4fa9ca413d1037c229c67be1165f0d50e7b7126e17c9ad42d68ea438f65d09e1905b467a5518dcf3dfccebc662e129c6e6af3cfa42c5332b131582620b048e2917c56026649bd3ce3758c8e2fe36ceb7aa8be45d4b137e426dc741864d8a8469f8ae2ee1b8a06ab3ba2e4ad978e812f3927a22e0d20dfefe92887392119fca9c494eb0f2de430b1c4b01956b24ef48f9ca55bff3521402447b545154f02c59507e7031837cb811cc3b3cf3fc93f4ba8e29b0332858d364febba68222fe2f2766e1aa8f0af5c6a5df18ce7964032f1a04dca2af2585ecb4d5c388473757517360e663f4a74d30e54ddd16f9ae60106c9636dbe1f84efffc940058100bc380c03c1c9a029055953c01500a",
+			protocol:       ubirch.Signed,
+			hashBeforeSign: true,
+			shouldFail:     false,
+		},
+		{
+			testName:       "543Bytes-Signed-SIMHash",
+			inputData:      "3fff144ed97ccd4a5bade5c8e3a3716b695b6c62f78828ef9f66fd21a0c1e60ee92d51af4192ec3eae8b716f0b7d35921af0fcedfe5cd15b89dbee9a7fd80c76bdb6d00f9f03d0e2351e5d744548fdf68fea8ca2e8f9962f754f934fb876bbddf3f1dc237f6fabcffbf01ce89e61a95f9921be578a741675511a75a3e857252fb2ec35e52334b5ba28fe3d2510a9f45f5c192eadaa49d1f5d2434c4924806be710b90c9161f78a2f0490826ef4f643dea9237ac3579c0e5eb1ec4c5866585aa59dfcf80c1d7bed3991bef277e9b33db8b7833f1fcaa9c5e4722c5505b902e004b6cd5626da8987c05291b8584c564f16ddc05a5140817254355abe716b3e0c3ca28d049720f1d2e12e4ef055e0e1c98981acf23200d76c10eb9a788b9b35b3797a9473806f4b59248cf56c2391e411a52dea86913293df713100dc4b7306c521604b09addde6a8c471c505f4c58ec7a7131dc67141b8fa0df7d128e0095eb6e88efb9f0a0c29d8abdd92e787136d71733a5596a05adaa43c31261e902a6e8f5937f3f043bf5f8a75f8df9c2f860c0b641f855a25be2760351e9397eea3c292d060835b59736c68cea8f40a922f01f067058d495d08cf5117dff853299d1dbdca9ddff03f01f07c63b057f518a0c8ed43cca4dd28695d6e2b118c819f12b368cf3396f950ef59865755d915e73093775cdcea1e7b4e675470c8ed51354e9d4d60c989a144f7112042024365a434528db782f8b5ed7638feaeac0521a68dc442",
+			protocol:       ubirch.Signed,
+			hashBeforeSign: true,
+			shouldFail:     false,
+		},
+		{ //This should fail (Input is too long for a hash)
+			testName:       "37Bytes-Signed-noSIMHash",
+			inputData:      "1234567890adb6b54894e4c880ceb90f779956e401b989dfca3db6f124a2ae01e85c562e8e",
+			protocol:       ubirch.Signed,
+			hashBeforeSign: false,
+			shouldFail:     true,
+		},
+		{ //This should fail (Input is too short for a hash)
+			testName:       "2Bytes-Signed-noSIMHash",
+			inputData:      "2e8e",
+			protocol:       ubirch.Signed,
+			hashBeforeSign: false,
+			shouldFail:     true,
 		},
 	}
 
@@ -206,6 +215,16 @@ func TestSIMProxySign(t *testing.T) {
 
 			//create UPP on SIM
 			uppBytes, err := sim.Sign(SIMProxyName, data, currTest.protocol, currTest.hashBeforeSign)
+
+			//If this is a test that should have failed, check if it really did
+			if currTest.shouldFail {
+				if err == nil {
+					t.Errorf("Call to sim.Sign() should have failed but did not.")
+				}
+				return //if this is a "fail" test we are done at this point in any case
+			}
+
+			//if this is a normal test (not "fail") continue with checks
 			if err != nil {
 				t.Errorf("Failed to sign UPP: %v\n", err)
 			}
