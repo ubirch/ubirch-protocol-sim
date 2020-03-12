@@ -503,7 +503,7 @@ func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign
 	data := hex.EncodeToString(value)
 	for finalBit := 0; len(data) > 0; {
 		end := 128
-		if len(data) < 128 {
+		if len(data) <= 128 {
 			finalBit = 1 << 7
 			end = len(data)
 		}
