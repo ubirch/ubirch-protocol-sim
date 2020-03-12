@@ -141,6 +141,7 @@ func TestSIMProxySign(t *testing.T) {
 		hashBeforeSign bool
 		shouldFail     bool
 	}{
+		//***"signed" tests***
 		{
 			testName:       "32Bytes-Signed-SIMHash",
 			inputData:      "adb6b54894e4c880ceb90f779956e401b989dfca3db6f124a2ae01e85c562e8e",
@@ -196,6 +197,28 @@ func TestSIMProxySign(t *testing.T) {
 			protocol:       ubirch.Signed,
 			hashBeforeSign: false,
 			shouldFail:     true,
+		},
+		//***"chained" tests***
+		{
+			testName:       "128Bytes-Chained-SIMHash",
+			inputData:      "75ec57fff9d76bff8e2cda2844eb18ea0ab0234ea38d16078adcb4d26126fbc1c14389ddcefecd7e6f7a4040b5b78841a967b21fa3edda8d34653e0de7e7ce1fb2dff86ea5f62cb4f607d332797070f836a611dec54f7559dba9b4a71cdf41ec951021e370db82fb2df6196778e95e6084fe25f861ba28d24bc6400387adb65f",
+			protocol:       ubirch.Chained,
+			hashBeforeSign: true,
+			shouldFail:     false,
+		},
+		{
+			testName:       "120Bytes-Chained-SIMHash",
+			inputData:      "8e2cda2844eb18ea0ab0234ea38d16078adcb4d26126fbc1c14389ddcefecd7e6f7a4040b5b78841a967b21fa3edda8d34653e0de7e7ce1fb2dff86ea5f62cb4f607d332797070f836a611dec54f7559dba9b4a71cdf41ec951021e370db82fb2df6196778e95e6084fe25f861ba28d24bc6400387adb65f",
+			protocol:       ubirch.Chained,
+			hashBeforeSign: true,
+			shouldFail:     false,
+		},
+		{
+			testName:       "543Bytes-Chained-SIMHash",
+			inputData:      "3fff144ed97ccd4a5bade5c8e3a3716b695b6c62f78828ef9f66fd21a0c1e60ee92d51af4192ec3eae8b716f0b7d35921af0fcedfe5cd15b89dbee9a7fd80c76bdb6d00f9f03d0e2351e5d744548fdf68fea8ca2e8f9962f754f934fb876bbddf3f1dc237f6fabcffbf01ce89e61a95f9921be578a741675511a75a3e857252fb2ec35e52334b5ba28fe3d2510a9f45f5c192eadaa49d1f5d2434c4924806be710b90c9161f78a2f0490826ef4f643dea9237ac3579c0e5eb1ec4c5866585aa59dfcf80c1d7bed3991bef277e9b33db8b7833f1fcaa9c5e4722c5505b902e004b6cd5626da8987c05291b8584c564f16ddc05a5140817254355abe716b3e0c3ca28d049720f1d2e12e4ef055e0e1c98981acf23200d76c10eb9a788b9b35b3797a9473806f4b59248cf56c2391e411a52dea86913293df713100dc4b7306c521604b09addde6a8c471c505f4c58ec7a7131dc67141b8fa0df7d128e0095eb6e88efb9f0a0c29d8abdd92e787136d71733a5596a05adaa43c31261e902a6e8f5937f3f043bf5f8a75f8df9c2f860c0b641f855a25be2760351e9397eea3c292d060835b59736c68cea8f40a922f01f067058d495d08cf5117dff853299d1dbdca9ddff03f01f07c63b057f518a0c8ed43cca4dd28695d6e2b118c819f12b368cf3396f950ef59865755d915e73093775cdcea1e7b4e675470c8ed51354e9d4d60c989a144f7112042024365a434528db782f8b5ed7638feaeac0521a68dc442",
+			protocol:       ubirch.Chained,
+			hashBeforeSign: true,
+			shouldFail:     false,
 		},
 	}
 
