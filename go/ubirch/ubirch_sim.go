@@ -546,7 +546,7 @@ func (p *Protocol) Verify(name string, value []byte, protocol byte) (bool, error
 	data := hex.EncodeToString(value)
 	for finalBit := 0; len(data) > 0; {
 		end := 128
-		if len(data) < 128 {
+		if len(data) <= 128 {
 			finalBit = 1 << 7
 			end = len(data)
 		}
