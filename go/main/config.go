@@ -10,22 +10,18 @@ import (
 
 // configuration file structure
 type Config struct {
-	Env  string `json:"env"`  // ubirch environment
-	Uuid string `json:"uuid"` // the device uuid to use
-	Sim  struct {
+	Env  string   `json:"env"`  // ubirch environment
+	Uuid string   `json:"uuid"` // the device uuid (this is only used when storing a new key pair to the SIM card)
+	Sim  struct { // todo take out once bootstrapping is deployed to all stages
 		Pin   string `json:"pin"`   // SIM pin
 		Debug bool   `json:"debug"` // enable extended debug output
-	}
-	Api struct { // TODO remove this part -> legacy
-		Key string `json:"key"` // authentication token
-		Upp string `json:"upp"` // authentication token
 	}
 	Password         string `json:"password"`   // password for the ubirch backend	(mandatory)
 	KeyService       string `json:"keyService"` // key service URL					(optional)
 	Niomon           string `json:"niomon"`     // authentication service URL		(optional)
 	DataService      string `json:"data"`       // data service URL					(optional)
 	VerifyService    string `json:"verify"`     // verification service URL			(optional)
-	BootstrapService string `json:"boot"`       // bootstrap service URL			(optional) TODO
+	BootstrapService string `json:"boot"`       // bootstrap service URL			(optional)
 }
 
 // load the config file
@@ -43,11 +39,7 @@ func (c *Config) load(fn string) error {
 	log.Printf("configuration found")
 
 	if c.Password == "" {
-		if c.Api.Upp == "" { // TODO this is here for now to handle old config as well
-			log.Println("WARNING password missing in config")
-		} else {
-			c.Password = c.Api.Upp
-		}
+		return fmt.Errorf("no password in config") // todo should this be a reason to abort and return error?
 	}
 
 	if c.Env == "" {

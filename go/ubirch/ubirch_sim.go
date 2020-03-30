@@ -595,13 +595,13 @@ func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign
 		return nil, err
 	}
 	if code != ApduOk {
-		return nil, errors.New(fmt.Sprintf("sign init failed: %v", err))
+		return nil, errors.New(fmt.Sprintf("sign init failed: %v", code))
 	}
 
 	data := hex.EncodeToString(value)
 	for finalBit := 0; len(data) > 0; {
 		end := 128
-		if len(data) < 128 {
+		if len(data) <= 128 {
 			finalBit = 1 << 7
 			end = len(data)
 		}
@@ -638,13 +638,13 @@ func (p *Protocol) Verify(name string, value []byte, protocol byte) (bool, error
 		return false, err
 	}
 	if code != ApduOk {
-		return false, errors.New(fmt.Sprintf("verify init failed: %v", err))
+		return false, errors.New(fmt.Sprintf("verify init failed: %v", code))
 	}
 
 	data := hex.EncodeToString(value)
 	for finalBit := 0; len(data) > 0; {
 		end := 128
-		if len(data) < 128 {
+		if len(data) <= 128 {
 			finalBit = 1 << 7
 			end = len(data)
 		}

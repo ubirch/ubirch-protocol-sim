@@ -68,19 +68,24 @@ func main() {
 
 	// initialize the ubirch protocol sim interface
 	err = sim.Init(PIN)
+	// alternatively you can skip bootstrapping and authorize with PIN from config file with the following line
+	//err = sim.Init(conf.Sim.Pin)
 	if err != nil {
 		log.Fatalf("initialization failed: %v", err)
 	}
 
+	cert_name := "ucrt"
+	key_name := "ukey"
+
 	//// generate a key pair
 	//uuidBytes, _ := hex.DecodeString(conf.Uuid)
 	//uid, err := uuid.FromBytes(uuidBytes)
-	//err = sim.GenerateKey(name, uid)
+	//err = sim.GenerateKey(key_name, uid)
 	//if err != nil {
 	//	log.Printf("key may already exist: %v", err)
 	//}
 	//// generate CSR
-	//csr, err := sim.GenerateCSR(name, uid)
+	//csr, err := sim.GenerateCSR(key_name, uid)
 	//if err != nil {
 	//	log.Fatalf("unable to produce CSR: %v", err)
 	//} else {
@@ -95,7 +100,7 @@ func main() {
 	//certBytes, err := hex.DecodeString(string(cert))
 	//
 	//// store certificate in SIM card
-	//err = sim.StoreCertificate(name, uid, certBytes)
+	//err = sim.StoreCertificate(cert_name, uid, certBytes)
 	//if err != nil {
 	//	log.Fatalf("storing certificate failed. %s", err)
 	//} else {
@@ -103,22 +108,21 @@ func main() {
 	//}
 	//
 	//// update certificate
-	//err = sim.UpdateCertificate(name, certBytes)
+	//err = sim.UpdateCertificate(cert_name, certBytes)
 	//if err != nil {
 	//	log.Fatalf("can't update certificate on SIM")
 	//} else {
 	//	log.Println("updated certificate on SIM")
 	//}
-	//
+
 	// get X.509 certificate from SIM card
-	cert_name := "ucrt"
 	simCert, err := sim.GetCertificate(cert_name)
 	if err != nil {
 		log.Fatalf("retrieving certificate from SIM failed. %s", err)
 	} else {
 		log.Printf("retrieved certificate from SIM: %x", simCert)
 	}
-	//// register public key using certificate from SIM
+	//// register public key using certificate from SIM todo not implemented in backend yet
 	//statusCode, respBody, err := post(simCert, conf.KeyService, map[string]string{"Content-Type": "application/json"})
 	//if err != nil {
 	//	log.Printf("unable to read response body: %v", err)
@@ -128,8 +132,7 @@ func main() {
 	//	log.Printf("response: %s", string(respBody))
 	//}
 
-	// get the public key (see next part, registering)
-	key_name := "ukey"
+	// get the public key (see next part, registering) todo this will be replaced by the X.509 cert from SIM card
 	key, err := sim.GetKey(key_name)
 	if err != nil {
 		log.Fatalf("no key entry found for %s", key_name)
@@ -138,7 +141,7 @@ func main() {
 		log.Printf("public key: hex    %s", hex.EncodeToString(key))
 	}
 
-	// get the UUID
+	// get the UUID from SIM card
 	uid, err := sim.GetUUID(key_name)
 	if err != nil {
 		log.Fatalf("getting UUID from certificate failed. %s", err)
