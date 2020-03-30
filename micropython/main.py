@@ -8,7 +8,7 @@ import time
 import ubinascii as binascii
 from network import WLAN, LTE
 
-from helpers import wifi_connect, nb_iot_attach, nb_iot_connect, set_time, get_certificate, register_key, post, \
+from helpers import wifi_connect, set_time, get_certificate, register_key, post, \
     bootstrap
 from ubirch import SimProtocol
 from uuid import UUID
@@ -28,6 +28,7 @@ BOOT_SERVER = 'https://api.console.{}.ubirch.com'.format(config["env"])
 HEADERS = [
     'X-Ubirch-Hardware-Id: {}'.format(str(device_uuid)),
     'X-Ubirch-Credential: {}'.format(binascii.b2a_base64(config["api"]["upp"]).decode().rstrip('\n')),
+    # fixme update config!
     'X-Ubirch-Auth-Type: ubirch'
 ]
 
@@ -76,7 +77,7 @@ if pin_file in os.listdir('.'):
         pin = f.readline().decode()
 else:
     print("bootstrapping SIM " + imsi)
-    pin = bootstrap(imsi, BOOT_SERVER, config["api"]["upp"], debug=config["sim"]["debug"])
+    pin = bootstrap(imsi, BOOT_SERVER, config["api"]["upp"], debug=config["sim"]["debug"])  # fixme update config!
     with open(pin_file, "wb") as f:
         f.write(pin.encode())
 
@@ -92,10 +93,6 @@ print("X.509 certificate [hex]   : " + binascii.hexlify(csr).decode())
 
 device_uuid = ubirch.get_uuid(device_name)
 print("UUID: " + str(device_uuid))
-
-import sys
-
-sys.exit()
 
 # create a certificate for the device and register public key at ubirch key service
 # todo this will be replaced by the X.509 certificate from the SIM card

@@ -76,12 +76,15 @@ func (p *Protocol) encodeBinary(tags []Tag) []byte {
 		length := len(tag.Data)
 		if length <= 0xff {
 			encoded = append(encoded, byte(length))
-		} else {
+		} else if length <= 0xffff {
 			lenBuf := make([]byte, 3)
 			lenBuf[0] = byte(0x82) // 0x82 indicates the length of the tag data being 2 bytes long)
 			lenBuf[1] = byte(length >> 8)
 			lenBuf[2] = byte(length)
 			encoded = append(encoded, lenBuf...)
+		} else {
+			// todo panic here or return error
+			return nil
 		}
 		encoded = append(encoded, tag.Data...)
 	}
@@ -263,7 +266,7 @@ func (p *Protocol) GetIMSI() (string, error) {
 	if imsi[0] == "ERROR" {
 		return "", errors.New("no IMSI available")
 	}
-	return imsi[0], nil
+	return imsi[0], nil // todo sanity check for IMSI
 }
 
 // [WIP] Store an ECC public key to the SIM cards secure storage
@@ -337,26 +340,26 @@ func (p *Protocol) GetUUID(name string) (uuid.UUID, error) {
 	// select SS entry
 	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
 	if err != nil {
-		return uuid.New(), err
+		return uuid.Nil, err
 	}
 	data, code, err := p.response(code)
 	if err != nil {
-		return uuid.New(), err
+		return uuid.Nil, err
 	}
 	if code != ApduOk {
-		return uuid.New(), errors.New(fmt.Sprintf("APDU error: %x, selecting SS entry (%s) failed", code, name))
+		return uuid.Nil, errors.New(fmt.Sprintf("APDU error: %x, selecting SS entry (%s) failed", code, name))
 	}
 	tags, err := p.decode(data)
 	if err != nil {
-		return uuid.New(), err
+		return uuid.Nil, err
 	}
 	entryTitle, err := p.findTag(tags, byte(0xc0))
 	if err != nil {
-		return uuid.New(), err
+		return uuid.Nil, err
 	}
 	uid, err := uuid.FromBytes(entryTitle)
 	if err != nil {
-		return uuid.New(), err
+		return uuid.Nil, err
 	}
 	return uid, nil
 }
