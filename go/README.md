@@ -5,25 +5,23 @@ cd main
 go run main.go /dev/ttyUSB0 115200
 ``` 
 
-Running requires a configuration file: `main/config.json`:
-There are default values for all service URLs, but you need to set the password. The PIN for the SIM should be acquired
- through bootstrapping, but this step can be skipped and you can set the PIN in the config. You can also enable extended
-  debug output. The minimal config file looks like this:
+Running requires a configuration file: `main/config.json` which must contain at least the `"password"`-key. This is the
+ ubirch API auth token from the 
+```json
+{
+  "password": "<ubirch-api-token>"
+}
+```
+
+There are default values for all service URLs. The default ubirch environment stage is `"prod"`, but can be overwritten
+ with the `"env"`-key. Extended debug output can be enabled with the `"debug"`-key.
 ```json
 {
   "password": "<ubirch-api-token>",
-  "sim": {"pin": "", "debug": false}
+  "env": "dev",
+  "debug": true
 }
 ```
-
-The default stage is `"prod"`, but you can change it by adding the `"env"`-key to your config file, like this:
-```json
-{
-    "env": "dev"
-}
-```
-or copy the `apiConfig` from the console to the config file, in which case the `"env"`-key will be ignored.
-
 > To test this implementation with a Pycom Gpy, install the [uart proxy](proxy) and then run main.go
 >  with the corresponding connection to the USB serial interface:
 

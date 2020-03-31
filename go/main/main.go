@@ -51,7 +51,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("loading configuration failed: %v", err)
 	}
-	sim := ubirch.Protocol{SimInterface: &serialPort, Debug: conf.Sim.Debug}
+	sim := ubirch.Protocol{SimInterface: &serialPort, Debug: conf.Debug}
 
 	// get SIM IMSI
 	imsi, err := sim.GetIMSI()
@@ -68,8 +68,6 @@ func main() {
 
 	// initialize the ubirch protocol sim interface
 	err = sim.Init(PIN)
-	// alternatively you can skip bootstrapping and authorize with PIN from config file with the following line
-	//err = sim.Init(conf.Sim.Pin)
 	if err != nil {
 		log.Fatalf("initialization failed: %v", err)
 	}

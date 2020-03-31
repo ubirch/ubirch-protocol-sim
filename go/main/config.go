@@ -10,18 +10,15 @@ import (
 
 // configuration file structure
 type Config struct {
-	Env  string   `json:"env"`  // ubirch environment
-	Uuid string   `json:"uuid"` // the device uuid (this is only used when storing a new key pair to the SIM card)
-	Sim  struct { // todo take out once bootstrapping is deployed to all stages
-		Pin   string `json:"pin"`   // SIM pin
-		Debug bool   `json:"debug"` // enable extended debug output
-	}
 	Password         string `json:"password"`   // password for the ubirch backend	(mandatory)
 	KeyService       string `json:"keyService"` // key service URL					(optional)
 	Niomon           string `json:"niomon"`     // authentication service URL		(optional)
 	DataService      string `json:"data"`       // data service URL					(optional)
 	VerifyService    string `json:"verify"`     // verification service URL			(optional)
 	BootstrapService string `json:"boot"`       // bootstrap service URL			(optional)
+	Env              string `json:"env"`        // ubirch environment				(optional)
+	Debug            bool   `json:"debug"`      // enable extended debug output		(optional)
+	Uuid             string `json:"uuid"`       // the device uuid 					(this is only used when storing a new key pair to the SIM card)
 }
 
 // load the config file
@@ -39,7 +36,7 @@ func (c *Config) load(fn string) error {
 	log.Printf("configuration found")
 
 	if c.Password == "" {
-		return fmt.Errorf("no password in config") // todo should this be a reason to abort and return error?
+		return fmt.Errorf("no password in config")
 	}
 
 	if c.Env == "" {
