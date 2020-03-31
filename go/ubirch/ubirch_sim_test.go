@@ -60,7 +60,7 @@ var TestCases = []TestData{
 func TestAPDUEncode(t *testing.T) {
 	p := Protocol{nil, true}
 	for i, c := range TestCases {
-		result := p.encode(c.args)
+		result, _ := p.encode(c.args)
 		if result != c.encoded {
 			t.Errorf("case %d, unexpected encoding result %v != %v", i, c.encoded, result)
 		}
