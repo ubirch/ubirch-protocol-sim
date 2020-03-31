@@ -1,15 +1,15 @@
 import crypto
-import hashlib
 import json
 import machine
+import os
 import pycom
 import time
 import ubinascii as binascii
 from network import WLAN, LTE
 
-from helpers import wifi_connect, nb_iot_attach, nb_iot_connect, set_time, get_certificate, register_key, post
-from ubirch import Protocol
-from uuid import UUID
+from helpers import wifi_connect, nb_iot_attach, nb_iot_connect, set_time, bootstrap, get_certificate, register_key, \
+    post
+from ubirch import SimProtocol
 
 print("** ubirch protocol (SIM) ...")
 
@@ -17,20 +17,12 @@ print("** ubirch protocol (SIM) ...")
 with open("config.json") as f:
     config = json.load(f)
 
-device_uuid = UUID(binascii.unhexlify(config["uuid"]))
-print("** UUID: {}".format(device_uuid))
-
 UPP_SERVER = 'niomon.{}.ubirch.com'.format(config["env"])
 KEY_SERVER = 'key.{}.ubirch.com'.format(config["env"])
-HEADERS = [
-    'X-Ubirch-Hardware-Id: {}'.format(str(device_uuid)),
-    'X-Ubirch-Credential: {}'.format(binascii.b2a_base64(config["api"]["upp"]).decode().rstrip('\n')),
-    'X-Ubirch-Auth-Type: ubirch'
-]
+BOOT_SERVER = 'https://api.console.{}.ubirch.com'.format(config["env"])
 
 lte = LTE()
 
-# # TODO take this out if LTE works
 # # initialize wifi connection
 # wlan = WLAN(mode=WLAN.STA)
 # if not wifi_connect(wlan, config["wifi"]["ssid"], config["wifi"]["pass"]):
@@ -54,22 +46,54 @@ if not set_time():
     time.sleep(5)
     machine.reset()
 
-# the pycom module restricts the size of SIM command lines, use only single character name!
-device_name = "A"
-
 # initialize the ubirch protocol interface
-ubirch = Protocol(lte=lte, pin=config["sim"]["pin"], at_debug=config["sim"]["debug"])
+ubirch = SimProtocol(lte=lte, at_debug=config["debug"])
+
+# get IMSI from SIM
+imsi = ubirch.get_imsi()
+print("IMSI: " + imsi)
+
+# check if PIN is known and bootstrap if unknown
+pin_file = imsi + ".bin"
+pin = ""
+if pin_file in os.listdir('.'):
+    print("loading PIN for " + imsi)
+    with open(pin_file, "rb") as f:
+        pin = f.readline().decode()
+else:
+    print("bootstrapping SIM " + imsi)
+    pin = bootstrap(imsi, BOOT_SERVER, config["password"], debug=config["debug"])
+    with open(pin_file, "wb") as f:
+        f.write(pin.encode())
+
+# use PIN to authenticate against the SIM application
+if not ubirch.sim_auth(pin):
+    raise Exception("PIN not accepted")
 
 # get X.509 certificate from SIM
-csr = ubirch.get_certificate(device_name)
-print("X.509 certificate: " + binascii.hexlify(csr).decode())
+cert_id = "ucrt"
+csr = ubirch.get_certificate(cert_id)
+print("X.509 certificate [base64]: " + binascii.b2a_base64(csr).decode().rstrip('\n'))
+print("X.509 certificate [hex]   : " + binascii.hexlify(csr).decode())
+
+device_name = "ukey"
+
+# get UUID from SIM
+device_uuid = ubirch.get_uuid(device_name)
+print("UUID: " + str(device_uuid))
+
+# set headers for http requests to the ubirch backend
+HEADERS = [
+    'X-Ubirch-Hardware-Id: {}'.format(str(device_uuid)),
+    'X-Ubirch-Credential: {}'.format(binascii.b2a_base64(config["password"]).decode().rstrip('\n')),
+    'X-Ubirch-Auth-Type: ubirch'
+]
 
 # create a certificate for the device and register public key at ubirch key service
 # todo this will be replaced by the X.509 certificate from the SIM card
 csr = get_certificate(device_name, device_uuid, ubirch)
-
 try:
-    r = register_key(KEY_SERVER, csr, config["api"]["key"], debug=True)
+    r = register_key(KEY_SERVER, csr, config["password"], debug=True)
     if '200 OK' in r:
         print(">> successfully sent key registration")
     else:
@@ -81,11 +105,7 @@ except:
     time.sleep(5)
     machine.reset()
 
-# get public key of device
-public_key = ubirch.get_key(device_name)
-print("** public key: {} ({})".format(binascii.hexlify(public_key).decode(), len(public_key)))
-
-interval = 30
+interval = 60
 pycom.heartbeat(False)  # turn off LED blinking
 while True:
     pycom.rgbled(0x002200)  # LED green
@@ -94,19 +114,16 @@ while True:
     # get data and calculate hash of timestamp, UUID and data to ensure hash is unique
     payload_data = binascii.hexlify(crypto.getrandbits(32))
     unique_data = "{}{}{}".format(start_time, device_uuid, payload_data)
-    data_hash = hashlib.sha256(unique_data).digest()
 
     # create message
-    message = '{{"ts":{},"id":"{}","data":"{}","hash":"{}"}}'.format(
+    message = '{{"ts":{},"id":"{}","data":"{}"}}'.format(
         start_time,
         device_uuid,
-        binascii.b2a_base64(payload_data).decode().rstrip('\n'),  # remove newline at end
-        binascii.b2a_base64(data_hash).decode().rstrip('\n'))  # remove newline at end
+        binascii.b2a_base64(payload_data).decode().rstrip('\n'))
     print("message: {}".format(message))
 
-    # generate UPP with hash
-    upp = ubirch.message_chained(device_name, data_hash)
-    # upp = ubirch.message_chained(device_name, unique_data.encode(), hash_before_sign=True)  # use automatic hashing
+    # generate UPP with the data hash using the automatic hashing functionality of the SIM card
+    upp = ubirch.message_chained(device_name, unique_data.encode(), hash_before_sign=True)
     print("UPP: {} ({})".format(binascii.hexlify(upp).decode(), len(upp)))
 
     # make sure device is still connected before sending data

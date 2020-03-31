@@ -5,19 +5,23 @@ cd main
 go run main.go /dev/ttyUSB0 115200
 ``` 
 
-Running requires a configuration file: `main/config.json`:
+Running requires a configuration file: `main/config.json` which must contain at least the `"password"`-key. This is the
+ ubirch API auth token from the 
 ```json
 {
-  "env": "dev",
-  "uuid": "<UUID bytes hex encoded: 32 characters>",
-  "sim": {"pin": "1234", "debug": true},
-  "api": {
-    "key": "<ubirch-key-server-api-token>",
-    "upp": "<ubirch-upp-server-api-token>"
-  }
+  "password": "<ubirch-api-token>"
 }
 ```
 
+There are default values for all service URLs. The default ubirch environment stage is `"prod"`, but can be overwritten
+ with the `"env"`-key. Extended debug output can be enabled with the `"debug"`-key.
+```json
+{
+  "password": "<ubirch-api-token>",
+  "env": "dev",
+  "debug": true
+}
+```
 > To test this implementation with a Pycom Gpy, install the [uart proxy](proxy) and then run main.go
 >  with the corresponding connection to the USB serial interface:
 

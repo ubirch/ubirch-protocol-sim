@@ -1,12 +1,14 @@
 import binascii
+import json
 import sys
 import time
+import urequests as requests
 
 import machine
 from network import WLAN, LTE
 
 import asn1
-from ubirch import Protocol
+from ubirch import SimProtocol
 from uuid import UUID
 
 
@@ -22,7 +24,7 @@ def nb_iot_attach(lte: LTE, apn: str) -> bool:
     if lte.isattached():
         print("-- attached: " + str(i) + "s")
         return True
-    return False 
+    return False
 
 
 def nb_iot_connect(lte: LTE) -> bool:
@@ -80,7 +82,7 @@ def asn1tosig(data: bytes):
     return part1 + part2
 
 
-def get_certificate(device_id: str, device_uuid: UUID, proto: Protocol) -> str:
+def get_certificate(device_id: str, device_uuid: UUID, proto: SimProtocol) -> str:
     """
     Get a signed json with the key registration request until CSR handling is in place.
     """
@@ -99,14 +101,17 @@ def get_certificate(device_id: str, device_uuid: UUID, proto: Protocol) -> str:
     return '{{"pubKeyInfo":{},"signature":"{}"}}'.format(REG.decode(), binascii.b2a_base64(signature).decode()[:-1])
 
 
-def post(server: str, path: str, headers: list, data: bytes, debug: bool = False) -> any:
+def request(method: str, server: str, path: str, headers: list, data: bytes = None, debug: bool = False):
     import socket, ssl
-    headers = ['Host: {}'.format(server), 'Content-Length: {}'.format(len(data))] + headers
-    req = 'POST {} HTTP/1.0\r\n{}\r\n\r\n'.format(path, '\r\n'.join(headers)).encode()
+    headers.append('Host: {}'.format(server))
+    if data is not None:
+        headers.append('Content-Length: {}'.format(len(data)))
+    req = '{} {} HTTP/1.0\r\n{}\r\n\r\n'.format(method, path, '\r\n'.join(headers)).encode()
     if debug:
         print("=== REQUEST")
         print(req)
-        print(data) if isinstance(data, str) else print(binascii.hexlify(data).decode())
+        if data is not None:
+            print(data) if isinstance(data, str) else print(binascii.hexlify(data).decode())
         print("===")
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sslsock = ssl.wrap_socket(sock)
@@ -114,7 +119,8 @@ def post(server: str, path: str, headers: list, data: bytes, debug: bool = False
     socket.dnsserver(0, '8.8.8.8')
     sslsock.connect(socket.getaddrinfo(server, 443)[0][-1])
     sslsock.send(req)
-    sslsock.send(data)
+    if data is not None:
+        sslsock.send(data)
     response = sslsock.recv(200)
     if debug:
         print("=== RESPONSE")
@@ -124,9 +130,48 @@ def post(server: str, path: str, headers: list, data: bytes, debug: bool = False
     return response
 
 
+def post(server: str, path: str, headers: list, data: bytes, debug: bool = False) -> any:
+    return request("POST", server, path, headers, data, debug)
+
+
+def get(server: str, path: str, headers: list, debug: bool = False) -> any:
+    return request("GET", server, path, headers, debug=debug)
+
+
 def register_key(server: str, certificate: str, auth: str, debug: bool = False):
     headers = [
         'Content-Type: application/json',
         'Authorization: Bearer {}'.format(auth)
     ]
     return post(server, '/api/keyService/v1/pubkey', headers, certificate.encode(), debug)
+
+
+def bootstrap(imsi: str, service_url: str, pw: str, debug: bool = False) -> str:
+    """
+    Claim SIM identity at the ubirch backend and return SIM applet PIN to unlock crypto functionality.
+    Throws exception if bootstrapping fails.
+    :param imsi: the SIM international mobile subscriber identity (IMSI)
+    :param service_url: the bootstrap service URL
+    :param pw: the ubirch backend password
+    :param debug: enable debug output
+    :return: the PIN to authenticate against the SIM card with
+    """
+    headers = {
+        'X-Ubirch-IMSI': imsi,
+        'X-Ubirch-Credential': binascii.b2a_base64(pw).decode().rstrip('\n'),
+        'X-Ubirch-Auth-Type': 'ubirch'
+    }
+    url = service_url + '/ubirch-web-ui/api/v1/devices/bootstrap'
+    r = requests.get(url, headers=headers)
+    if r.status_code == 200:
+        info = json.loads(r.content)
+        if debug: print("bootstrapping successful: " + info)
+
+        if info['encrypted']:  # not implemented yet
+            # decrypt PIN here
+            pass
+
+        pin = info['pin']
+        return pin
+    else:
+        raise Exception("request to {} failed with status code {}: {}".format(url, r.status_code, r.text))
