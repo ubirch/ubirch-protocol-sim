@@ -1,14 +1,15 @@
 package ubirch
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	"log"
 	"strconv"
 	"strings"
+
+	"github.com/google/uuid"
 )
-import "encoding/hex"
 
 type SimInterface interface {
 	Send(cmd string) ([]string, error)
