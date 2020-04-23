@@ -263,14 +263,28 @@ func (p *Protocol) Random(len int) ([]byte, error) {
 }
 
 func (p *Protocol) GetIMSI() (string, error) {
-	imsi, err := p.Send("AT+CIMI")
-	if err != nil {
-		return "", err
+	const IMSI_LEN = 15
+	var imsi string
+	var err error
+	// sometimes the modem is not ready to retrieve the IMSI yet, so we try again, if it fails
+	for i := 0; i < 3; i++ {
+		response, err := p.Send("AT+CIMI")
+		if err != nil {
+			continue
+		}
+		if response[0] == "ERROR" {
+			err = fmt.Errorf("no IMSI available")
+			continue
+		}
+		if len(response[0]) != IMSI_LEN {
+			err = fmt.Errorf("invalid IMSI length: %d", response[0])
+			continue
+		}
+		imsi = response[0]
+		err = nil
+		break
 	}
-	if imsi[0] == "ERROR" {
-		return "", errors.New("no IMSI available")
-	}
-	return imsi[0], nil // todo sanity check for IMSI
+	return imsi, err
 }
 
 // [WIP] Store an ECC public key to the SIM cards secure storage
