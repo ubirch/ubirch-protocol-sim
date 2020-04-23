@@ -25,10 +25,9 @@
 """
 
 import time
-from uuid import UUID
-
 import ubinascii as binascii
 from network import LTE
+from uuid import UUID
 
 # AT+CSIM=LENGTH,COMMAND
 
@@ -38,7 +37,7 @@ APP_DF = 'D2760001180002FF34108389C0028B02'
 STK_OK = '9000'  # successful command execution
 STK_MD = '6310'  # more data, repeat finishing
 
-# SIM toolkit commands 
+# SIM toolkit commands
 STK_GET_RESPONSE = '00C00000{:02X}'  # get a pending response
 STK_AUTH_PIN = '00200000{:02X}{}'  # authenticate with pin ([1], 2.1.2)
 
@@ -205,14 +204,22 @@ class SimProtocol:
         """
         Get the international mobile subscriber identity (IMSI) from SIM
         """
-        self.lte.pppsuspend()
+        IMSI_LEN = 15
         at_cmd = "AT+CIMI"
         if self.DEBUG: print("++ " + at_cmd)
-        result = [k for k in self.lte.send_at_cmd(at_cmd).split('\r\n') if len(k.strip()) > 0]
-        if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
+
+        self.lte.pppsuspend()
+        tries = 3
+        while tries > 0:
+            tries -= 1
+            result = [k for k in self.lte.send_at_cmd(at_cmd).split('\r\n') if len(k.strip()) > 0]
+            if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
+
+            if result[-1] == 'OK' and len(result[0]) == IMSI_LEN:
+                self.lte.pppresume()
+                return result[0]
+
         self.lte.pppresume()
-        if result[-1] == 'OK':
-            return result[0]
         raise Exception("no IMSI available")
 
     def sim_auth(self, pin: str) -> bool:
@@ -489,9 +496,14 @@ class SimProtocol:
 
     def message_verify(self, name: str, upp: bytes) -> bool:
         """
-        Verify a signed ubirch message.
+        Verify a ubirch protocol message.
         :param name: the name of the key entry_id to use (i.e. a servers public key)
         :param upp: the UPP to verify
         :return: whether the message can be verified
         """
-        return self.verify(name, upp, APP_UBIRCH_SIGNED)
+        if upp[1] == APP_UBIRCH_SIGNED:
+            return self.verify(name, upp, APP_UBIRCH_SIGNED)
+        elif upp[1] == APP_UBIRCH_CHAINED:
+            return self.verify(name, upp, APP_UBIRCH_CHAINED)
+        else:
+            return self.verify(name, upp, 0x00)
