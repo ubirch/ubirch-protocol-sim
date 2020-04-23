@@ -8,7 +8,7 @@ The code needs a file `config.json` (not committed) that looks like this:
 ```json
 {
     "wifi": {"ssid": "MyNetwork", "pass": "MyPassword"},
-    "apn": "iot.telekom.net",
+    "apn": "iot.1nce.net",
     "env": "demo",
     "password": "API Token for UPP backend server",
     "debug": false
