@@ -65,6 +65,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("bootstrapping failed: %v", err)
 	}
+	log.Printf("PIN: %s", PIN)
 
 	// initialize the ubirch protocol sim interface
 	err = sim.Init(PIN)
