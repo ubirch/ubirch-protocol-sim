@@ -19,6 +19,7 @@ type Config struct {
 	Env              string `json:"env"`        // ubirch environment				(optional)
 	Debug            bool   `json:"debug"`      // enable extended debug output		(optional)
 	Uuid             string `json:"uuid"`       // the device uuid 					(this is only used when storing a new key pair to the SIM card)
+	Pin              string `json:"pin"`        // the SIM pin						(this is only used if bootstrapping is not possible)
 }
 
 // load the config file

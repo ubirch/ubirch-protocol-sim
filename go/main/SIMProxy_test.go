@@ -82,7 +82,7 @@ func openAndInitSIMProxy(t *testing.T, port string, baud int) *ubirch.Protocol {
 	sim := ubirch.Protocol{SimInterface: &serialPort, Debug: SIMProxyProtocolDebug}
 
 	// initialize the ubirch protocol sim interface
-	err = sim.Init(conf.Sim.Pin)
+	err = sim.Init(conf.Pin)
 	if err != nil {
 		t.Fatalf("initialization failed: %v", err)
 		return nil
