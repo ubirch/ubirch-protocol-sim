@@ -89,10 +89,14 @@ class SimProtocol:
             r = self.lte.send_at_cmd("AT+CFUN?")
 
         # select the SignApp
-        code = self._select()
+        for _ in range(3):
+            code = self._select()
+            if code == STK_OK:
+                self.lte.pppresume()
+                return
+
         self.lte.pppresume()
-        if code != STK_OK:
-            raise Exception("selecting SIM application failed")
+        raise Exception("selecting SIM application failed")
 
     def _select(self) -> str:
         """
@@ -209,9 +213,7 @@ class SimProtocol:
         if self.DEBUG: print("++ " + at_cmd)
 
         self.lte.pppsuspend()
-        tries = 3
-        while tries > 0:
-            tries -= 1
+        for _ in range(3):
             result = [k for k in self.lte.send_at_cmd(at_cmd).split('\r\n') if len(k.strip()) > 0]
             if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
 
