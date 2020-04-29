@@ -418,8 +418,8 @@ func (p *Protocol) GetVerificationKey(uid uuid.UUID) ([]byte, error) {
 }
 
 // Generate a key pair on the SIM card and store it using the given name and the UUID that is
-// later used for the ubirch-protocol. The name for public keys is prefixed with an underscore
-// ("_") and the private key gets the name as is. This API automatically selects the right name.
+// later used for the ubirch-protocol. The name for private keys is prefixed with an underscore
+// ("_") and the public key gets the name as is. This API automatically selects the right name.
 func (p *Protocol) GenerateKey(name string, uid uuid.UUID) error {
 	uidBytes, err := uid.MarshalBinary()
 	if err != nil {
