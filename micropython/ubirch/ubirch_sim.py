@@ -269,7 +269,7 @@ class SimProtocol:
         +++ the max. length of AT commands to transmit via UART (using lte.send_at_cmd) is 127 bytes +++
         +++ but the length of the AT command containing certificate attributes is much greater (264 bytes) +++
         [WIP] Request a CSR for the selected key.
-        :param entry_id: the key entry_id
+        :param entry_id: the entry ID of the SS key entry
         :param uuid: the csr subject uuid
         :return: the CSR bytes
         """
@@ -307,9 +307,9 @@ class SimProtocol:
 
     def get_certificate(self, entry_id: str) -> bytes:
         """
-        Retrieve the X.509 certificate for a key with given key entry_id
-        :param entry_id: the key entry ID of the corresponding key of the certificate
-        :return: the certificate bytes
+        Retrieve the X.509 certificate for a key with given key entry ID
+        :param entry_id: the entry ID of the SS key entry
+        :return: the certificate (bytes)
         """
         if self.DEBUG: print("getting X.509 certificate for key with entry ID " + entry_id)
         self.lte.pppsuspend()
@@ -328,19 +328,27 @@ class SimProtocol:
 
     def get_uuid(self, entry_id: str) -> UUID:
         """
-        Retrieve the UUID of a given entry_id.
-        :param entry_id: the entry ID of the entry to look for
+        Retrieve the UUID associated with a given device name.
+        :param entry_id: the entry ID of the SS key entry associated with the UUID
         :return: the UUID
         """
-        if self.DEBUG: print("getting UUID from entry ID " + entry_id)
+        if self.DEBUG: print("getting UUID associated with device name " + entry_id)
+        return UUID(self.get_entry_title(entry_id))
+
+    def get_entry_title(self, entry_id: str) -> bytes:
+        """
+        Retrieve the entry title of an entry with a given id.
+        :param entry_id: the entry ID of the entry to look for
+        :return: the entry title
+        """
+        if self.DEBUG: print("getting entry title of entry with ID " + entry_id)
         self.lte.pppsuspend()
-        # select SS public key entry
+        # select SS entry
         (data, code) = self._select_ss_entry(entry_id)
         self.lte.pppresume()
         if code == STK_OK:
-            # get the UUID
-            uuid_bytes = [tag[1] for tag in self._decode_tag(data) if tag[0] == 0xc0][0]
-            return UUID(uuid_bytes)
+            # get the entry title
+            return [tag[1] for tag in self._decode_tag(data) if tag[0] == 0xc0][0]
 
         raise Exception(code)
 
@@ -386,32 +394,32 @@ class SimProtocol:
         self.lte.pppresume()
         raise Exception(code)
 
-    def generate_key(self, entry_id: str, entry_title: str) -> str:
+    def generate_key(self, entry_id: str, device_uuid: UUID):
         """
-        # FIXME not working because AT command too long for pycom FW
-        Generate a new key pair and store it on the SIM card using the entry_id and the entry_title.
-        :param entry_id: the ID of the entry_id in the SIM cards secure storage area. (KEY_ID)
-        :param entry_title: the unique title of the key, which corresponds to the UUID of the device.
-        :return: the entry_id name or throws an exception if the operation fails
+        # FIXME with current pycom FW the AT command for entry titles > 1 byte is too long
+        Generate a new key pair and store it on the SIM card using the device name as entry ID
+        and the UUID as entry title.
+        Throws an exception if the operation fails.
+        :param entry_id: the entry ID of the SS key entry
+        :param device_uuid: the UUID associated with the key
         """
         if self.DEBUG: print("generating key pair with entry ID " + entry_id)
         self.lte.pppsuspend()
         # see ch 4.1.14 ID and Title (ID shall be fix and title the UUID of the device)
 
-        # prefix private key entry id and private key title with a '_'
-        # SS entries must have unique keys and titles
+        # prefix private key entry id with a '_'
+        # SS entries must have unique entry IDs
         args = self._encode_tag([(0xC4, str.encode(entry_id)),
-                                 (0xC0, binascii.unhexlify(entry_title)),
+                                 (0xC0, device_uuid.bytes),
                                  (0xC1, bytes([0x03])),
                                  (0xC4, str.encode("_" + entry_id)),
-                                 (0xC0, binascii.unhexlify("_" + entry_title)),
+                                 (0xC0, device_uuid.bytes),
                                  (0xC1, bytes([0x03]))
                                  ])
         (data, code) = self._execute(STK_APP_KEY_GENERATE.format(int(len(args) / 2), args))
         self.lte.pppresume()
-        if code == STK_OK:
-            return entry_id
-        raise Exception(code)
+        if code != STK_OK:
+            raise Exception(code)
 
     def sign(self, entry_id: str, value: bytes, protocol_version: int, hash_before_sign: bool = False) -> bytes:
         """
