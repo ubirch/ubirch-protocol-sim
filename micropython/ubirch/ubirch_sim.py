@@ -90,6 +90,7 @@ class SimProtocol:
 
         # select the SignApp
         for _ in range(3):
+            time.sleep(1)
             code = self._select()
             if code == STK_OK:
                 self.lte.pppresume()
