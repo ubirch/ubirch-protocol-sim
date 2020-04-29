@@ -85,12 +85,12 @@ class SimProtocol:
         self.lte.pppsuspend()
         r = self.lte.send_at_cmd("AT+CFUN?")
         while not ("+CFUN: 1" in r or "+CFUN: 4" in r):
-            time.sleep(1)
+            time.sleep(0.2)
             r = self.lte.send_at_cmd("AT+CFUN?")
 
         # select the SignApp
         for _ in range(3):
-            time.sleep(1)
+            time.sleep(0.2)
             code = self._select()
             if code == STK_OK:
                 self.lte.pppresume()
