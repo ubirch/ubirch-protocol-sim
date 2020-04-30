@@ -166,7 +166,7 @@ def bootstrap(imsi: str, service_url: str, pw: str, debug: bool = False) -> str:
     r = requests.get(url, headers=headers)
     if r.status_code == 200:
         info = json.loads(r.content)
-        if debug: print("bootstrapping successful: " + repr(info))
+        if debug: print("bootstrapping successful")
 
         if info['encrypted']:  # not implemented yet
             # decrypt PIN here

@@ -231,8 +231,9 @@ class SimProtocol:
         :param pin: the pin to use for authentication
         :return: True if the operation was successful
         """
-        if self.DEBUG: print("authenticating with PIN " + pin)
+        if self.DEBUG: print("authenticating with PIN")
         self.lte.pppsuspend()
+        # FIXME do not print PIN authentication AT command
         (data, code) = self._execute(STK_AUTH_PIN.format(len(pin), binascii.hexlify(pin).decode()))
         self.lte.pppresume()
         if code != STK_OK:
