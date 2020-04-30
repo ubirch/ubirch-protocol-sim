@@ -82,7 +82,7 @@ def asn1tosig(data: bytes):
     return part1 + part2
 
 
-def get_certificate(device_id: str, device_uuid: UUID, proto: SimProtocol) -> str:
+def get_certificate(device_id: str, device_uuid: UUID, proto: SimProtocol) -> bytes:
     """
     Get a signed json with the key registration request until CSR handling is in place.
     """
@@ -98,7 +98,8 @@ def get_certificate(device_id: str, device_uuid: UUID, proto: SimProtocol) -> st
     REG = REG_TMPL.format(created, str(device_uuid), pub_base64, pub_base64, not_after, not_before).encode()
     # get the ASN.1 encoded signature and extract the signature bytes from it
     signature = asn1tosig(proto.sign(device_id, REG, 0x00))
-    return '{{"pubKeyInfo":{},"signature":"{}"}}'.format(REG.decode(), binascii.b2a_base64(signature).decode()[:-1])
+    return '{{"pubKeyInfo":{},"signature":"{}"}}'.format(REG.decode(),
+                                                         binascii.b2a_base64(signature).decode()[:-1]).encode()
 
 
 def request(method: str, server: str, path: str, headers: list, data: bytes = None, debug: bool = False):
@@ -138,12 +139,12 @@ def get(server: str, path: str, headers: list, debug: bool = False) -> any:
     return request("GET", server, path, headers, debug=debug)
 
 
-def register_key(server: str, certificate: str, auth: str, debug: bool = False):
+def register_key(server: str, certificate: bytes, auth: str, debug: bool = False):
     headers = [
         'Content-Type: application/json',
         'Authorization: Bearer {}'.format(auth)
     ]
-    return post(server, '/api/keyService/v1/pubkey', headers, certificate.encode(), debug)
+    return post(server, '/api/keyService/v1/pubkey', headers, certificate, debug)
 
 
 def bootstrap(imsi: str, service_url: str, pw: str, debug: bool = False) -> str:

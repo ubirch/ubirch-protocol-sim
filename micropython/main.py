@@ -21,33 +21,37 @@ UPP_SERVER = 'niomon.{}.ubirch.com'.format(config["env"])
 KEY_SERVER = 'key.{}.ubirch.com'.format(config["env"])
 BOOT_SERVER = 'https://api.console.{}.ubirch.com'.format(config["env"])
 
+device_name = "ukey"
+cert_id = "ucrt"
+
 lte = LTE()
 
 # # initialize wifi connection
 # wlan = WLAN(mode=WLAN.STA)
 # if not wifi_connect(wlan, config["wifi"]["ssid"], config["wifi"]["pass"]):
 #     print("ERROR: unable to connect to network. Resetting device...")
-#     time.sleep(5)
 #     machine.reset()
 
 # initialize NB-IoT connection
 if not nb_iot_attach(lte, config["apn"]):
     print("ERROR: unable to attach to network. Resetting device...")
-    time.sleep(5)
     machine.reset()
 
 if not nb_iot_connect(lte):
     print("ERROR: unable to connect to network. Resetting device...")
-    time.sleep(5)
     machine.reset()
 
 if not set_time():
     print("ERROR: unable to set time. Resetting device...")
-    time.sleep(5)
     machine.reset()
 
 # initialize the ubirch protocol interface
-ubirch = SimProtocol(lte=lte, at_debug=config["debug"])
+ubirch = None
+try:
+    ubirch = SimProtocol(lte=lte, at_debug=config["debug"])
+except Exception as e:
+    print("SIM initialization failed: {} Resetting device...".format(e))
+    machine.reset()
 
 # get IMSI from SIM
 imsi = ubirch.get_imsi()
@@ -70,17 +74,18 @@ else:
 if not ubirch.sim_auth(pin):
     raise Exception("PIN not accepted")
 
-# get X.509 certificate from SIM
-cert_id = "ucrt"
-csr = ubirch.get_certificate(cert_id)
-print("X.509 certificate [base64]: " + binascii.b2a_base64(csr).decode().rstrip('\n'))
-print("X.509 certificate [hex]   : " + binascii.hexlify(csr).decode())
-
-device_name = "ukey"
-
 # get UUID from SIM
 device_uuid = ubirch.get_uuid(device_name)
 print("UUID: " + str(device_uuid))
+
+# try to get X.509 certificate from SIM
+csr = b''
+try:
+    csr = ubirch.get_certificate(cert_id)
+    print("X.509 certificate [base64]: " + binascii.b2a_base64(csr).decode().rstrip('\n'))
+    print("X.509 certificate [hex]   : " + binascii.hexlify(csr).decode())
+except Exception as e:
+    print("no certificate with entry ID {} found on SIM")
 
 # set headers for http requests to the ubirch backend
 HEADERS = [
@@ -98,11 +103,9 @@ try:
         print(">> successfully sent key registration")
     else:
         print("!! key registration not sent !! request to {} failed: {}\nResetting device...".format(KEY_SERVER, r))
-        time.sleep(5)
         machine.reset()
 except:
     print("ERROR: can't register key, network failure. Resetting device...")
-    time.sleep(5)
     machine.reset()
 
 interval = 60
