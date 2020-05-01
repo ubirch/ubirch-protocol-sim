@@ -15,7 +15,9 @@ The code needs a file `config.json` (not committed) that looks like this:
 }
 ```
 
-The wifi settings are optional, if you are just using the SIM card as a trusted execution environment.
+The wifi settings are optional, if you are just using the SIM card as a trusted execution environment. 
+If the `"wifi"`-key is not set in the configuration, the client will try to establish a NB-IoT connection, otherwise it
+ will use the given `ssid` and `pass` to connect to a WIFI network.
 
 # LED Status
 | LED colour    | Status            |

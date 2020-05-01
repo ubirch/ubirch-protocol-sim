@@ -15,7 +15,7 @@ from uuid import UUID
 def nb_iot_attach(lte: LTE, apn: str) -> bool:
     lte.attach(band=8, apn=apn)
     i = 0
-    sys.stdout.write("++ attaching to the NB-IoT network")
+    sys.stdout.write("-- attaching to the NB-IoT network")
     while not lte.isattached() and i < 60:
         time.sleep(1.0)
         sys.stdout.write(".")
@@ -30,7 +30,7 @@ def nb_iot_attach(lte: LTE, apn: str) -> bool:
 def nb_iot_connect(lte: LTE) -> bool:
     lte.connect()  # start a data session and obtain an IP address
     i = 0
-    sys.stdout.write("++ connecting to the NB-IoT network")
+    sys.stdout.write("-- connecting to the NB-IoT network")
     while not lte.isconnected() and i < 30:
         time.sleep(1.0)
         sys.stdout.write(".")
@@ -46,7 +46,7 @@ def nb_iot_connect(lte: LTE) -> bool:
 def set_time() -> bool:
     rtc = machine.RTC()
     i = 0
-    sys.stdout.write("++ setting time")
+    sys.stdout.write("-- setting time")
     rtc.ntp_sync('185.15.72.251', 3600)
     while not rtc.synced() and i < 60:
         sys.stdout.write(".")
@@ -89,8 +89,8 @@ def bootstrap(imsi: str, server: str, auth: str) -> str:
     }
     r = requests.get(url, headers=headers)
     if r.status_code == 200:
+        print(">> bootstrapping successful\n")
         info = json.loads(r.content)
-        print("bootstrapping successful")
         return info['pin']
     else:
         raise Exception("request to {} failed with status code {}: {}".format(url, r.status_code, r.text))
@@ -127,7 +127,7 @@ def get_certificate(device_id: str, device_uuid: UUID, proto: SimProtocol) -> by
                                                          binascii.b2a_base64(signature).decode()[:-1]).encode()
 
 
-def register_key(server: str, auth: str, certificate: bytes) -> str:
+def register_key(server: str, auth: str, certificate: bytes) -> bytes:
     url = 'https://' + server + '/api/keyService/v1/pubkey'
     headers = {
         'Content-Type': 'application/json',
@@ -135,8 +135,8 @@ def register_key(server: str, auth: str, certificate: bytes) -> str:
     }
     r = requests.post(url=url, headers=headers, data=certificate)
     if r.status_code == 200:
-        print("key registration successful")
-        return r.text
+        print(">> key registration successful\n")
+        return r.content
     else:
         raise Exception("request to {} failed with status code {}: {}".format(url, r.status_code, r.text))
 
@@ -150,6 +150,7 @@ def post(server: str, uuid: UUID, auth: str, data: bytes) -> bytes:
     }
     r = requests.post(url=url, data=data, headers=headers)
     if r.status_code == 200:
+        print(">> successfully sent UPP\n")
         return r.content
     else:
         raise Exception("request to {} failed with status code {}: {}".format(url, r.status_code, r.content))
