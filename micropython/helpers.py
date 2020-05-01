@@ -1,10 +1,10 @@
 import binascii
 import json
+import machine
 import sys
 import time
 import urequests as requests
 
-import machine
 from network import WLAN, LTE
 
 import asn1
@@ -71,7 +71,32 @@ def wifi_connect(wlan: WLAN, ssid: str, pwd: str) -> bool:
     return False
 
 
-def asn1tosig(data: bytes):
+def bootstrap(imsi: str, server: str, auth: str) -> str:
+    """
+    Claim SIM identity at the ubirch backend and return SIM applet PIN to unlock crypto functionality.
+    Throws exception if bootstrapping fails.
+    :param imsi: the SIM international mobile subscriber identity (IMSI)
+    :param server: the bootstrap service URL
+    :param auth: the ubirch backend password
+    :param debug: enable debug output
+    :return: the PIN to authenticate against the SIM card with
+    """
+    url = 'https://' + server + '/ubirch-web-ui/api/v1/devices/bootstrap'
+    headers = {
+        'X-Ubirch-IMSI': imsi,
+        'X-Ubirch-Credential': binascii.b2a_base64(auth).decode().rstrip('\n'),
+        'X-Ubirch-Auth-Type': 'ubirch'
+    }
+    r = requests.get(url, headers=headers)
+    if r.status_code == 200:
+        info = json.loads(r.content)
+        print("bootstrapping successful")
+        return info['pin']
+    else:
+        raise Exception("request to {} failed with status code {}: {}".format(url, r.status_code, r.text))
+
+
+def _asn1tosig(data: bytes):
     s1 = asn1.asn1_node_root(data)
     a1 = asn1.asn1_node_first_child(data, s1)
     part1 = asn1.asn1_get_value(data, a1)
@@ -97,82 +122,34 @@ def get_certificate(device_id: str, device_uuid: UUID, proto: SimProtocol) -> by
     REG_TMPL = '{{"algorithm":"ecdsa-p256v1","created":"{}","hwDeviceId":"{}","pubKey":"{}","pubKeyId":"{}","validNotAfter":"{}","validNotBefore":"{}"}}'
     REG = REG_TMPL.format(created, str(device_uuid), pub_base64, pub_base64, not_after, not_before).encode()
     # get the ASN.1 encoded signature and extract the signature bytes from it
-    signature = asn1tosig(proto.sign(device_id, REG, 0x00))
+    signature = _asn1tosig(proto.sign(device_id, REG, 0x00))
     return '{{"pubKeyInfo":{},"signature":"{}"}}'.format(REG.decode(),
                                                          binascii.b2a_base64(signature).decode()[:-1]).encode()
 
 
-def request(method: str, server: str, path: str, headers: list, data: bytes = None, debug: bool = False):
-    import socket, ssl
-    headers.append('Host: {}'.format(server))
-    if data is not None:
-        headers.append('Content-Length: {}'.format(len(data)))
-    req = '{} {} HTTP/1.0\r\n{}\r\n\r\n'.format(method, path, '\r\n'.join(headers)).encode()
-    if debug:
-        print("=== REQUEST")
-        print(req)
-        if data is not None:
-            print(data) if isinstance(data, str) else print(binascii.hexlify(data).decode())
-        print("===")
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sslsock = ssl.wrap_socket(sock)
-    socket.dnsserver(1, '8.8.4.4')
-    socket.dnsserver(0, '8.8.8.8')
-    sslsock.connect(socket.getaddrinfo(server, 443)[0][-1])
-    sslsock.send(req)
-    if data is not None:
-        sslsock.send(data)
-    response = sslsock.recv(200)
-    if debug:
-        print("=== RESPONSE")
-        print(response.decode())
-        print("===")
-    sslsock.close()
-    return response
-
-
-def post(server: str, path: str, headers: list, data: bytes, debug: bool = False) -> any:
-    return request("POST", server, path, headers, data, debug)
-
-
-def get(server: str, path: str, headers: list, debug: bool = False) -> any:
-    return request("GET", server, path, headers, debug=debug)
-
-
-def register_key(server: str, certificate: bytes, auth: str, debug: bool = False):
-    headers = [
-        'Content-Type: application/json',
-        'Authorization: Bearer {}'.format(auth)
-    ]
-    return post(server, '/api/keyService/v1/pubkey', headers, certificate, debug)
-
-
-def bootstrap(imsi: str, service_url: str, pw: str, debug: bool = False) -> str:
-    """
-    Claim SIM identity at the ubirch backend and return SIM applet PIN to unlock crypto functionality.
-    Throws exception if bootstrapping fails.
-    :param imsi: the SIM international mobile subscriber identity (IMSI)
-    :param service_url: the bootstrap service URL
-    :param pw: the ubirch backend password
-    :param debug: enable debug output
-    :return: the PIN to authenticate against the SIM card with
-    """
+def register_key(server: str, auth: str, certificate: bytes) -> str:
+    url = 'https://' + server + '/api/keyService/v1/pubkey'
     headers = {
-        'X-Ubirch-IMSI': imsi,
-        'X-Ubirch-Credential': binascii.b2a_base64(pw).decode().rstrip('\n'),
-        'X-Ubirch-Auth-Type': 'ubirch'
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer {}'.format(auth)
     }
-    url = service_url + '/ubirch-web-ui/api/v1/devices/bootstrap'
-    r = requests.get(url, headers=headers)
+    r = requests.post(url=url, headers=headers, data=certificate)
     if r.status_code == 200:
-        info = json.loads(r.content)
-        if debug: print("bootstrapping successful")
-
-        if info['encrypted']:  # not implemented yet
-            # decrypt PIN here
-            pass
-
-        pin = info['pin']
-        return pin
+        print("key registration successful")
+        return r.text
     else:
         raise Exception("request to {} failed with status code {}: {}".format(url, r.status_code, r.text))
+
+
+def post(server: str, uuid: UUID, auth: str, data: bytes) -> bytes:
+    url = 'https://' + server + '/'
+    headers = {
+        'X-Ubirch-Hardware-Id': str(uuid),
+        'X-Ubirch-Credential': binascii.b2a_base64(auth).decode().rstrip('\n'),
+        'X-Ubirch-Auth-Type': 'ubirch'
+    }
+    r = requests.post(url=url, data=data, headers=headers)
+    if r.status_code == 200:
+        return r.content
+    else:
+        raise Exception("request to {} failed with status code {}: {}".format(url, r.status_code, r.content))

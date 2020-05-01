@@ -19,7 +19,7 @@ with open("config.json") as f:
 
 UPP_SERVER = 'niomon.{}.ubirch.com'.format(config["env"])
 KEY_SERVER = 'key.{}.ubirch.com'.format(config["env"])
-BOOT_SERVER = 'https://api.console.{}.ubirch.com'.format(config["env"])
+BOOT_SERVER = 'api.console.{}.ubirch.com'.format(config["env"])
 
 device_name = "ukey"
 cert_id = "ucrt"
@@ -30,19 +30,23 @@ lte = LTE()
 # wlan = WLAN(mode=WLAN.STA)
 # if not wifi_connect(wlan, config["wifi"]["ssid"], config["wifi"]["pass"]):
 #     print("ERROR: unable to connect to network. Resetting device...")
+#     time.sleep(1)
 #     machine.reset()
 
 # initialize NB-IoT connection
 if not nb_iot_attach(lte, config["apn"]):
     print("ERROR: unable to attach to network. Resetting device...")
+    time.sleep(1)
     machine.reset()
 
 if not nb_iot_connect(lte):
     print("ERROR: unable to connect to network. Resetting device...")
+    time.sleep(1)
     machine.reset()
 
 if not set_time():
     print("ERROR: unable to set time. Resetting device...")
+    time.sleep(1)
     machine.reset()
 
 # initialize the ubirch protocol interface
@@ -51,6 +55,7 @@ try:
     ubirch = SimProtocol(lte=lte, at_debug=config["debug"])
 except Exception as e:
     print("SIM initialization failed: {} Resetting device...".format(e))
+    time.sleep(1)
     machine.reset()
 
 # get IMSI from SIM
@@ -66,7 +71,7 @@ if pin_file in os.listdir('.'):
         pin = f.readline().decode()
 else:
     print("bootstrapping SIM " + imsi)
-    pin = bootstrap(imsi, BOOT_SERVER, config["password"], debug=config["debug"])
+    pin = bootstrap(imsi, BOOT_SERVER, config["password"])
     with open(pin_file, "wb") as f:
         f.write(pin.encode())
 
@@ -85,27 +90,16 @@ try:
     print("X.509 certificate [base64]: " + binascii.b2a_base64(csr).decode().rstrip('\n'))
     print("X.509 certificate [hex]   : " + binascii.hexlify(csr).decode())
 except Exception as e:
-    print("no certificate with entry ID {} found on SIM")
-
-# set headers for http requests to the ubirch backend
-HEADERS = [
-    'X-Ubirch-Hardware-Id: {}'.format(str(device_uuid)),
-    'X-Ubirch-Credential: {}'.format(binascii.b2a_base64(config["password"]).decode().rstrip('\n')),
-    'X-Ubirch-Auth-Type: ubirch'
-]
+    print("no certificate with entry ID {} found on SIM".format(cert_id))
 
 # create a certificate for the device and register public key at ubirch key service
 # todo this will be replaced by the X.509 certificate from the SIM card
 csr = get_certificate(device_name, device_uuid, ubirch)
 try:
-    r = register_key(KEY_SERVER, csr, config["password"], debug=True)
-    if '200 OK' in r:
-        print(">> successfully sent key registration")
-    else:
-        print("!! key registration not sent !! request to {} failed: {}\nResetting device...".format(KEY_SERVER, r))
-        machine.reset()
-except:
-    print("ERROR: can't register key, network failure. Resetting device...")
+    register_key(KEY_SERVER, config["password"], csr)
+except Exception as e:
+    print("key registration failed: {} Resetting device...".format(e))
+    time.sleep(1)
     machine.reset()
 
 interval = 60
@@ -116,7 +110,6 @@ while True:
 
     # get data and calculate hash of timestamp, UUID and data to ensure hash is unique
     payload_data = binascii.hexlify(crypto.getrandbits(32))
-    unique_data = "{}{}{}".format(start_time, device_uuid, payload_data)
 
     # create message
     message = '{{"ts":{},"id":"{}","data":"{}"}}'.format(
@@ -125,8 +118,8 @@ while True:
         binascii.b2a_base64(payload_data).decode().rstrip('\n'))
     print("message: {}".format(message))
 
-    # generate UPP with the data hash using the automatic hashing functionality of the SIM card
-    upp = ubirch.message_chained(device_name, unique_data.encode(), hash_before_sign=True)
+    # generate UPP with the message hash using the automatic hashing functionality of the SIM card
+    upp = ubirch.message_chained(device_name, message.encode(), hash_before_sign=True)
     print("UPP: {} ({})".format(binascii.hexlify(upp).decode(), len(upp)))
 
     # make sure device is still connected before sending data
@@ -154,11 +147,13 @@ while True:
     # # # # # # # # # # # # # # # # # # #
 
     # send UPP to ubirch backend
-    r = post(UPP_SERVER, '/', HEADERS, upp, debug=False)
-    if '200 OK' in r:
+    try:
+        post(UPP_SERVER, device_uuid, config["password"], upp)
         print(">> successfully sent UPP")
-    else:
-        print("!! UPP not sent !! request to {} failed: {}".format(UPP_SERVER, r))
+    except Exception as e:
+        print("!! UPP not sent !! {}".format(e))
+        # import sys
+        # sys.print_exception(e)
         pycom.rgbled(0x440000)  # LED red
         time.sleep(3)
 
