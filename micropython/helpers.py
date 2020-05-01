@@ -153,3 +153,18 @@ def post(server: str, uuid: UUID, auth: str, data: bytes) -> bytes:
         return r.content
     else:
         raise Exception("request to {} failed with status code {}: {}".format(url, r.status_code, r.content))
+
+
+def get_upp_payload(upp: bytes) -> bytes:
+    """
+    Get the payload of a Ubirch Protocol Message
+    """
+    if upp[0] == 0x95 and upp[1] == 0x22:  # signed UPP
+        payload_start_idx = 23
+    elif upp[0] == 0x96 and upp[1] == 0x23:  # chained UPP
+        payload_start_idx = 89
+    else:
+        raise Exception("!! can't get payload from {} (not a UPP)".format(binascii.hexlify(upp).decode()))
+
+    payload_len = upp[payload_start_idx - 1]
+    return upp[payload_start_idx:payload_start_idx + payload_len]

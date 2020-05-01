@@ -8,7 +8,7 @@ import ubinascii as binascii
 from network import WLAN, LTE
 
 from helpers import wifi_connect, nb_iot_attach, nb_iot_connect, set_time, bootstrap, get_certificate, register_key, \
-    post
+    post, get_upp_payload
 from ubirch import SimProtocol
 
 print("** ubirch protocol (SIM) ...")
@@ -116,11 +116,13 @@ while True:
         start_time,
         device_uuid,
         binascii.b2a_base64(payload_data).decode().rstrip('\n'))
-    print("message: {}".format(message))
+    print("message: {}\n".format(message))
 
     # generate UPP with the message hash using the automatic hashing functionality of the SIM card
     upp = ubirch.message_chained(device_name, message.encode(), hash_before_sign=True)
-    print("UPP: {} ({})".format(binascii.hexlify(upp).decode(), len(upp)))
+
+    print("Hash (SHA256): {}".format(binascii.b2a_base64(get_upp_payload(upp)).decode()))
+    print("UPP (msgpack): {} ({})\n".format(binascii.hexlify(upp).decode(), len(upp)))
 
     # make sure device is still connected before sending data
     # if not wlan.isconnected():
