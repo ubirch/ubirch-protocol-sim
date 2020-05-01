@@ -36,6 +36,7 @@ APP_DF = 'D2760001180002FF34108389C0028B02'
 
 STK_OK = '9000'  # successful command execution
 STK_MD = '6310'  # more data, repeat finishing
+STK_NF = '6A88'  # not found
 
 # SIM toolkit commands
 STK_GET_RESPONSE = '00C00000{:02X}'  # get a pending response
@@ -202,7 +203,9 @@ class SimProtocol:
         (data, code) = self._execute(STK_APP_SS_SELECT.format(len(entry_id), binascii.hexlify(entry_id).decode()))
         (data, code) = self._get_response(code)
         if code == STK_OK and self.DEBUG:
-            print('found entry ID: ' + repr(self._decode_tag(data)))
+            print('found entry: ' + repr(self._decode_tag(data)))
+        elif code == STK_NF:
+            raise Exception("entry \"{}\" not found".format(entry_id))
         return data, code
 
     def get_imsi(self) -> str:
