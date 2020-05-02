@@ -81,17 +81,25 @@ class SimProtocol:
         """
         self.lte = lte
         self.DEBUG = at_debug
+        self._init()
 
+    def _init(self):
         # wait until the modem is ready
         self.lte.pppsuspend()
+        i = 20
         r = self.lte.send_at_cmd("AT+CFUN?")
         while not ("+CFUN: 1" in r or "+CFUN: 4" in r):
-            time.sleep(0.2)
-            r = self.lte.send_at_cmd("AT+CFUN?")
+            i -= 1
+            if i > 0:
+                time.sleep(0.5)
+                r = self.lte.send_at_cmd("AT+CFUN?")
+            else:
+                self.lte.pppresume()
+                raise Exception("setting up modem failed: {}".format(r))
 
         # select the SignApp
         for _ in range(3):
-            time.sleep(0.2)
+            time.sleep(0.5)
             code = self._select()
             if code == STK_OK:
                 self.lte.pppresume()
@@ -99,6 +107,10 @@ class SimProtocol:
 
         self.lte.pppresume()
         raise Exception("selecting SIM application failed")
+
+    def reinit(self, pin: str):
+        self._init()
+        self.sim_auth(pin)
 
     def _select(self) -> str:
         """

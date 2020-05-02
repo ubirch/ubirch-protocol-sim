@@ -3,12 +3,13 @@ import json
 import machine
 import os
 import pycom
+import sys
 import time
 import ubinascii as binascii
 from network import WLAN, LTE
 
 from helpers import wifi_connect, nb_iot_attach, nb_iot_connect, set_time, bootstrap, get_certificate, register_key, \
-    post, get_upp_payload
+    post, get_upp_payload, lte_shutdown, lte_setup
 from ubirch import SimProtocol
 
 print("\n- - - UBIRCH protocol (SIM) - - -\n")
@@ -31,24 +32,28 @@ if 'wifi' in config:
     # initialize wifi connection
     wlan = WLAN(mode=WLAN.STA)
     if not wifi_connect(wlan, config["wifi"]["ssid"], config["wifi"]["pass"]):
-        print("ERROR: unable to connect to network. Resetting device...")
+        print("ERROR: unable to connect to network")
+        lte_shutdown(lte)
+        print("Resetting device...")
         time.sleep(1)
         machine.reset()
 else:
     nb_iot_connection = True
-    # initialize NB-IoT connection
-    if not nb_iot_attach(lte, config["apn"]):
-        print("ERROR: unable to attach to network. Resetting device...")
-        time.sleep(1)
-        machine.reset()
+    # check Network Coverage for UE device (i.e LTE modem)
+    if not lte.ue_coverage():
+        print("!! There seems to be no Netwok Coverage !! Try to attach and connect anyway ...")
 
-    if not nb_iot_connect(lte):
-        print("ERROR: unable to connect to network. Resetting device...")
-        time.sleep(1)
-        machine.reset()
+# initialize LTE and connect to NB-IoT if enabled
+if not lte_setup(lte, nb_iot_connection, config["apn"]):
+    lte_shutdown(lte)
+    print("Resetting device...")
+    time.sleep(1)
+    machine.reset()
 
 if not set_time():
-    print("ERROR: unable to set time. Resetting device...")
+    print("ERROR: unable to set time")
+    lte_shutdown(lte)
+    print("Resetting device...")
     time.sleep(1)
     machine.reset()
 
@@ -57,7 +62,9 @@ ubirch = None
 try:
     ubirch = SimProtocol(lte=lte, at_debug=config["debug"])
 except Exception as e:
-    print("ERROR: SIM initialization failed: {} Resetting device...".format(e))
+    print("ERROR: SIM initialization failed: {}".format(e))
+    lte_shutdown(lte)
+    print("Resetting device...")
     time.sleep(1)
     machine.reset()
 
@@ -75,7 +82,9 @@ else:
     try:
         pin = bootstrap(imsi, BOOT_SERVER, config["password"])
     except Exception as e:
-        print("ERROR: bootstrapping failed: {} Resetting device...".format(e))
+        print("ERROR: bootstrapping failed: {}".format(e))
+        lte_shutdown(lte)
+        print("Resetting device...")
         time.sleep(1)
         machine.reset()
 
@@ -109,7 +118,9 @@ print("certificate: {}\n".format(csr.decode()))
 try:
     register_key(KEY_SERVER, config["password"], csr)
 except Exception as e:
-    print("ERROR: key registration failed: {} Resetting device...".format(e))
+    print("ERROR: key registration failed: {}".format(e))
+    lte_shutdown(lte)
+    print("Resetting device...")
     time.sleep(1)
     machine.reset()
 
@@ -119,6 +130,24 @@ print("-- starting loop (interval = {} sec)\n".format(interval))
 while True:
     pycom.rgbled(0x002200)  # LED green
     start_time = time.time()  # start timer
+
+    # reinitialize LTE modem and connection
+    if not lte_setup(lte, nb_iot_connection, config["apn"]):
+        pycom.rgbled(0x440044)  # LED purple
+        lte_shutdown(lte)
+        print("Resetting device...")
+        time.sleep(5)
+        machine.reset()
+
+    try:
+        ubirch.reinit(pin)
+    except Exception as e:
+        print("ERROR: SIM reinitialization failed: {}".format(e))
+        pycom.rgbled(0x440000)  # LED red
+        lte_shutdown(lte)
+        print("Resetting device...")
+        time.sleep(3)
+        machine.reset()
 
     # get data and calculate hash of timestamp, UUID and data to ensure hash is unique
     payload_data = binascii.hexlify(crypto.getrandbits(32))
@@ -131,7 +160,13 @@ while True:
     print("message: {}\n".format(message))
 
     # generate UPP with the message hash using the automatic hashing functionality of the SIM card
-    upp = ubirch.message_chained(device_name, message.encode(), hash_before_sign=True)
+    try:
+        upp = ubirch.message_chained(device_name, message.encode(), hash_before_sign=True)
+    except Exception as e:
+        pycom.rgbled(0x440000)  # LED red
+        sys.print_exception(e)
+        time.sleep(3)
+        continue
 
     print("hash (SHA256): {}".format(binascii.b2a_base64(get_upp_payload(upp)).decode()))
     print("UPP (msgpack): {} ({})\n".format(binascii.hexlify(upp).decode(), len(upp)))
@@ -144,6 +179,7 @@ while True:
             print("!! lost connection, trying to reconnect ...")
             if not wifi_connect(wlan, config["wifi"]["ssid"], config["wifi"]["pass"]):
                 print("ERROR: unable to connect to network. Resetting device...")
+                lte_shutdown(lte)
                 time.sleep(5)
                 machine.reset()
     else:  # check NB-IOT
@@ -152,6 +188,7 @@ while True:
             print("!! lost connection, trying to reconnect ...")
             if not nb_iot_connect(lte):
                 print("ERROR: unable to connect to network. Resetting device...")
+                lte_shutdown(lte)
                 time.sleep(5)
                 machine.reset()
 
@@ -166,12 +203,12 @@ while True:
         post(UPP_SERVER, device_uuid, config["password"], upp)
     except Exception as e:
         print("!! UPP not sent !! {}".format(e))
-        # import sys
-        # sys.print_exception(e)
+        sys.print_exception(e)
         pycom.rgbled(0x440000)  # LED red
         time.sleep(3)
+        continue
 
-    lte.disconnect()
+    lte_shutdown(lte)
 
     # wait for next interval
     passed_time = time.time() - start_time

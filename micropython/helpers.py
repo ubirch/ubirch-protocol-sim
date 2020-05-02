@@ -71,6 +71,44 @@ def wifi_connect(wlan: WLAN, ssid: str, pwd: str) -> bool:
     return False
 
 
+def lte_setup(lte, connection: bool, apn: str) -> bool:
+    print("-- initializing LTE")
+    lte.init()
+
+    if connection:
+        if not nb_iot_attach(lte, apn):
+            print("ERROR: unable to attach to LTE network")
+            return False
+
+        if not nb_iot_connect(lte):
+            print("ERROR: unable to connect to LTE network")
+            return False
+
+    return True
+
+
+def lte_shutdown(lte):
+    try:
+        if lte.isconnected():
+            print("-- disconnecting LTE")
+            lte.disconnect()
+    except Exception as e:
+        sys.print_exception(e)
+
+    try:
+        if lte.isattached():
+            print("-- detaching LTE")
+            lte.detach()
+    except Exception as e:
+        sys.print_exception(e)
+
+    try:
+        print("-- deinitializing LTE")
+        lte.deinit()
+    except Exception as e:
+        sys.print_exception(e)
+
+
 def bootstrap(imsi: str, server: str, auth: str) -> str:
     """
     Claim SIM identity at the ubirch backend and return SIM applet PIN to unlock crypto functionality.
