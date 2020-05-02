@@ -224,6 +224,7 @@ class SimProtocol:
         if code == STK_OK and self.DEBUG:
             print('found entry: ' + repr(self._decode_tag(data)))
         elif code == STK_NF:
+            self.lte.pppresume()
             raise Exception("entry \"{}\" not found".format(entry_id))
         return data, code
 
@@ -462,7 +463,7 @@ class SimProtocol:
         if hash_before_sign:
             if self.DEBUG: print(">> data will be hashed by SIM before singing")
             protocol_version |= 0x40  # set flag for automatic hashing
-        if self.DEBUG: print("\n>> sign init")
+        if self.DEBUG: print(">> sign init")
         (data, code) = self._execute(STK_APP_SIGN_INIT.format(protocol_version, int(len(args) / 2), args))
         if code == STK_OK:
             args = binascii.hexlify(value).decode()
@@ -470,11 +471,11 @@ class SimProtocol:
             chunk_size = self.MAX_AT_LENGTH - len(STK_APP_SIGN_FINAL[:-2].format(0, 0))
             chunks = [args[i:i + chunk_size] for i in range(0, len(args), chunk_size)]
             for chunk in chunks[:-1]:
-                if self.DEBUG: print("\n>> sign update")
+                if self.DEBUG: print(">> sign update")
                 (data, code) = self._execute(STK_APP_SIGN_FINAL.format(0, int(len(chunk) / 2), chunk))
                 if code != STK_OK: break
             else:
-                if self.DEBUG: print("\n>> sign final")
+                if self.DEBUG: print(">> sign final")
                 (data, code) = self._execute(STK_APP_SIGN_FINAL.format(1 << 7, int(len(chunks[-1]) / 2), chunks[-1]))
             (data, code) = self._get_response(code)
             if code == STK_OK:
@@ -496,7 +497,7 @@ class SimProtocol:
         """
         self.lte.pppsuspend()
         args = self._encode_tag([(0xC4, entry_id.encode()), (0xD0, bytes([0x21]))])
-        if self.DEBUG: print("\n>> verify init")
+        if self.DEBUG: print(">> verify init")
         (data, code) = self._execute(STK_APP_VERIFY_INIT.format(protocol_version, int(len(args) / 2), args))
         if code == STK_OK:
             args = binascii.hexlify(value).decode()
@@ -504,11 +505,11 @@ class SimProtocol:
             chunk_size = self.MAX_AT_LENGTH - len(STK_APP_VERIFY_FINAL[:-2].format(0, 0))
             chunks = [args[i:i + chunk_size] for i in range(0, len(args), chunk_size)]
             for chunk in chunks[:-1]:
-                if self.DEBUG: print("\n>> verify update")
+                if self.DEBUG: print(">> verify update")
                 (data, code) = self._execute(STK_APP_VERIFY_FINAL.format(0, int(len(chunk) / 2), chunk))
                 if code != STK_OK: break
             else:
-                if self.DEBUG: print("\n>> verify final")
+                if self.DEBUG: print(">> verify final")
                 (data, code) = self._execute(STK_APP_VERIFY_FINAL.format(1 << 7, int(len(chunks[-1]) / 2), chunks[-1]))
             self.lte.pppresume()
             return code == STK_OK
