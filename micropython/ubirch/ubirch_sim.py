@@ -222,12 +222,13 @@ class SimProtocol:
         :return: the code response from the operation
         """
         (data, code) = self._execute(STK_APP_SS_SELECT.format(len(entry_id), binascii.hexlify(entry_id).decode()))
+        if code == STK_NF:
+            self.lte.pppresume()
+            raise Exception("entry \"{}\" not found".format(entry_id))
+
         (data, code) = self._get_response(code)
         if code == STK_OK and self.DEBUG:
             print('found entry: ' + repr(self._decode_tag(data)))
-        elif code == STK_NF:
-            self.lte.pppresume()
-            raise Exception("entry \"{}\" not found".format(entry_id))
         return data, code
 
     def get_imsi(self) -> str:
