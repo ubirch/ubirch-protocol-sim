@@ -7,11 +7,28 @@ import ubinascii as binascii
 import urequests as requests
 
 from network import WLAN, LTE
+
+from error_handling import set_led, LED_GREEN
 from ubirch import SimProtocol
 from uuid import UUID
 
 
-def nb_iot_attach(lte: LTE, apn: str) -> bool:
+def wake_up() -> float:
+    set_led(LED_GREEN)
+    return time.time()
+
+
+def sleep_until_next_interval(start_time, interval):
+    # wait for next interval
+    sleep_time = interval - int(time.time() - start_time)
+    if sleep_time > 0:
+        print(">> sleep for {} seconds".format(sleep_time))
+        set_led(0)  # LED off
+        machine.idle()
+        time.sleep(sleep_time)
+
+
+def nb_iot_attach(lte: LTE, apn: str):
     sys.stdout.write(">> attaching to LTE network ({})".format(apn))
     lte.attach(band=8, apn=apn)
     i = 0
@@ -21,13 +38,12 @@ def nb_iot_attach(lte: LTE, apn: str) -> bool:
         sys.stdout.write(".")
         i += 1
     print("")
-    if lte.isattached():
-        print("-- attached: " + str(i) + "s")
-        return True
-    return False
+    if not lte.isattached():
+        raise Exception("unable to attach to LTE network")
+    print("-- attached: " + str(i) + "s")
 
 
-def nb_iot_connect(lte: LTE) -> bool:
+def nb_iot_connect(lte: LTE):
     sys.stdout.write(">> connecting to LTE network")
     lte.connect()  # start a data session and obtain an IP address
     i = 0
@@ -37,81 +53,59 @@ def nb_iot_connect(lte: LTE) -> bool:
         sys.stdout.write(".")
         i += 1
     print("")
-    if lte.isconnected():
-        print("-- connected ({}s)".format(i))
-        # print('-- IP address: ' + str(lte.ifconfig()))
-        return True
-    return False
+    if not lte.isconnected():
+        raise Exception("unable to connect to LTE network")
+    print("-- connected ({}s)".format(i))
+    # print('-- IP address: ' + str(lte.ifconfig()))
 
 
-def set_time() -> bool:
-    rtc = machine.RTC()
-    i = 0
-    sys.stdout.write(">> setting time")
-    rtc.ntp_sync('185.15.72.251', 3600)
-    while not rtc.synced() and i < 60:
-        machine.idle()  # save power while waiting
-        time.sleep(1.0)
-        sys.stdout.write(".")
-        i += 1
-    print("\n-- current time: " + str(rtc.now()) + "\n")
-    return rtc.synced()
-
-
-def wifi_connect(wlan: WLAN, ssid: str, pwd: str) -> bool:
-    sys.stdout.write(">> connecting to WLAN network \"{}\"".format(ssid))
+def wifi_connect(wlan: WLAN, ssid: str, pwd: str):
+    print(">> connecting to WLAN network \"{}\"".format(ssid))
     try:
         wlan.connect(ssid, auth=(WLAN.WPA2, pwd), timeout=10000)
         while not wlan.isconnected():
             machine.idle()  # save power while waiting
-            time.sleep(1)
-            sys.stdout.write(".")
     except OSError:
-        return False
-    finally:
-        print("")
-
+        raise Exception("unable to connect to WLAN network \"{}\"".format(ssid))
     print("-- connected")
     print("-- IP address: " + str(wlan.ifconfig()))
-    return True
 
 
-def lte_setup(lte, connection: bool, apn: str) -> bool:
+def set_time():
+    rtc = machine.RTC()
+    i = 0
+    sys.stdout.write(">> setting time")
+    rtc.ntp_sync('185.15.72.251', 3600)
+    while not rtc.synced() and i < 30:
+        machine.idle()  # save power while waiting
+        time.sleep(1.0)
+        sys.stdout.write(".")
+        i += 1
+    print("")
+    if not rtc.synced():
+        raise Exception("unable to set time")
+    print("-- current time: {}\n".format(rtc.now()))
+
+
+def lte_setup(lte: LTE, connect: bool, apn: str or None):
     print(">> initializing LTE")
     lte.init()
-
-    if connection:
-        if not nb_iot_attach(lte, apn):
-            print("ERROR: unable to attach to LTE network")
-            return False
-
-        if not nb_iot_connect(lte):
-            print("ERROR: unable to connect to LTE network")
-            return False
-
-    return True
+    if connect:
+        if not lte.isattached():
+            nb_iot_attach(lte, apn)
+        if not lte.isconnected():
+            nb_iot_connect(lte)
 
 
-def lte_shutdown(lte):
-    try:
-        if lte.isconnected():
-            print(">> disconnecting LTE")
-            lte.disconnect()
-    except Exception as e:
-        sys.print_exception(e)
-
-    try:
-        if lte.isattached():
-            print(">> detaching LTE")
-            lte.detach()
-    except Exception as e:
-        sys.print_exception(e)
-
-    try:
-        print(">> deinitializing LTE")
-        lte.deinit()
-    except Exception as e:
-        sys.print_exception(e)
+def lte_shutdown(lte: LTE):
+    if lte.isconnected():
+        print(">> disconnecting LTE")
+        lte.disconnect()
+    if lte.isattached():
+        print(">> detaching LTE")
+        lte.detach()
+    print(">> deinitializing LTE")
+    lte.deinit()
 
 
 def bootstrap(imsi: str, server: str, auth: str) -> str:
