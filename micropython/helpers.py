@@ -1,13 +1,12 @@
-import binascii
+import asn1
 import json
 import machine
 import sys
 import time
+import ubinascii as binascii
 import urequests as requests
 
 from network import WLAN, LTE
-
-import asn1
 from ubirch import SimProtocol
 from uuid import UUID
 
@@ -17,6 +16,7 @@ def nb_iot_attach(lte: LTE, apn: str) -> bool:
     lte.attach(band=8, apn=apn)
     i = 0
     while not lte.isattached() and i < 60:
+        machine.idle()  # save power while waiting
         time.sleep(1.0)
         sys.stdout.write(".")
         i += 1
@@ -32,6 +32,7 @@ def nb_iot_connect(lte: LTE) -> bool:
     lte.connect()  # start a data session and obtain an IP address
     i = 0
     while not lte.isconnected() and i < 30:
+        machine.idle()  # save power while waiting
         time.sleep(1.0)
         sys.stdout.write(".")
         i += 1
@@ -49,28 +50,30 @@ def set_time() -> bool:
     sys.stdout.write(">> setting time")
     rtc.ntp_sync('185.15.72.251', 3600)
     while not rtc.synced() and i < 60:
-        sys.stdout.write(".")
+        machine.idle()  # save power while waiting
         time.sleep(1.0)
+        sys.stdout.write(".")
         i += 1
     print("\n-- current time: " + str(rtc.now()) + "\n")
     return rtc.synced()
 
 
 def wifi_connect(wlan: WLAN, ssid: str, pwd: str) -> bool:
-    sys.stdout.write(">> connecting to WLAN network \"{}\" ".format(ssid))
-    wlan.connect(ssid, auth=(WLAN.WPA2, pwd), timeout=5000)
-    i = 0
-    while not wlan.isconnected() and i < 30:
-        machine.idle()  # save power while waiting
-        time.sleep(1.0)
-        sys.stdout.write(".")
-        i += 1
-    print("")
-    if wlan.isconnected():
-        print("-- connected ({}s)".format(i))
-        print("-- IP address: " + str(wlan.ifconfig()))
-        return True
-    return False
+    sys.stdout.write(">> connecting to WLAN network \"{}\"".format(ssid))
+    try:
+        wlan.connect(ssid, auth=(WLAN.WPA2, pwd), timeout=10000)
+        while not wlan.isconnected():
+            machine.idle()  # save power while waiting
+            time.sleep(1)
+            sys.stdout.write(".")
+    except OSError:
+        return False
+    finally:
+        print("")
+
+    print("-- connected")
+    print("-- IP address: " + str(wlan.ifconfig()))
+    return True
 
 
 def lte_setup(lte, connection: bool, apn: str) -> bool:
