@@ -434,10 +434,10 @@ class SimProtocol:
 
         # prefix private key entry id with a '_'
         # SS entries must have unique entry IDs
-        args = self._encode_tag([(0xC4, str.encode(entry_id)),
+        args = self._encode_tag([(0xC4, entry_id.encode()),
                                  (0xC0, uuid.hex),
                                  (0xC1, bytes([0x03])),
-                                 (0xC4, str.encode("_" + entry_id)),
+                                 (0xC4, ("_" + entry_id).encode()),
                                  (0xC0, uuid.hex),
                                  (0xC1, bytes([0x03]))
                                  ])
@@ -458,9 +458,11 @@ class SimProtocol:
         :return: the signed message or throws an exceptions if failed
         """
         self.lte.pppsuspend()
-        args = self._encode_tag([(0xC4, str.encode('_' + entry_id)), (0xD0, bytes([0x21]))])
+        args = self._encode_tag([(0xC4, ('_' + entry_id).encode()), (0xD0, bytes([0x21]))])
         if hash_before_sign:
+            if self.DEBUG: print(">> data will be hashed by SIM before singing")
             protocol_version |= 0x40  # set flag for automatic hashing
+        if self.DEBUG: print("\n>> sign init")
         (data, code) = self._execute(STK_APP_SIGN_INIT.format(protocol_version, int(len(args) / 2), args))
         if code == STK_OK:
             args = binascii.hexlify(value).decode()
@@ -468,9 +470,11 @@ class SimProtocol:
             chunk_size = self.MAX_AT_LENGTH - len(STK_APP_SIGN_FINAL[:-2].format(0, 0))
             chunks = [args[i:i + chunk_size] for i in range(0, len(args), chunk_size)]
             for chunk in chunks[:-1]:
+                if self.DEBUG: print("\n>> sign update")
                 (data, code) = self._execute(STK_APP_SIGN_FINAL.format(0, int(len(chunk) / 2), chunk))
                 if code != STK_OK: break
             else:
+                if self.DEBUG: print("\n>> sign final")
                 (data, code) = self._execute(STK_APP_SIGN_FINAL.format(1 << 7, int(len(chunks[-1]) / 2), chunks[-1]))
             (data, code) = self._get_response(code)
             if code == STK_OK:
@@ -491,7 +495,8 @@ class SimProtocol:
         :return: the verification response or throws an exceptions if failed
         """
         self.lte.pppsuspend()
-        args = self._encode_tag([(0xC4, str.encode(entry_id)), (0xD0, bytes([0x21]))])
+        args = self._encode_tag([(0xC4, entry_id.encode()), (0xD0, bytes([0x21]))])
+        if self.DEBUG: print("\n>> verify init")
         (data, code) = self._execute(STK_APP_VERIFY_INIT.format(protocol_version, int(len(args) / 2), args))
         if code == STK_OK:
             args = binascii.hexlify(value).decode()
@@ -499,9 +504,11 @@ class SimProtocol:
             chunk_size = self.MAX_AT_LENGTH - len(STK_APP_VERIFY_FINAL[:-2].format(0, 0))
             chunks = [args[i:i + chunk_size] for i in range(0, len(args), chunk_size)]
             for chunk in chunks[:-1]:
+                if self.DEBUG: print("\n>> verify update")
                 (data, code) = self._execute(STK_APP_VERIFY_FINAL.format(0, int(len(chunk) / 2), chunk))
                 if code != STK_OK: break
             else:
+                if self.DEBUG: print("\n>> verify final")
                 (data, code) = self._execute(STK_APP_VERIFY_FINAL.format(1 << 7, int(len(chunks[-1]) / 2), chunks[-1]))
             self.lte.pppresume()
             return code == STK_OK
@@ -517,6 +524,7 @@ class SimProtocol:
         :param hash_before_sign: payload will be hashed before it is used to build the UPP
         :return: the signed message or throws an exceptions if failed
         """
+        if self.DEBUG: print("\n>> creating signed UPP using key \"_{}\"".format(name))
         return self.sign(name, payload, APP_UBIRCH_SIGNED, hash_before_sign=hash_before_sign)
 
     def message_chained(self, name: str, payload: bytes, hash_before_sign: bool = False) -> bytes:
@@ -527,6 +535,7 @@ class SimProtocol:
         :param hash_before_sign: payload will be hashed before it is used to build the UPP
         :return: the chained message or throws an exceptions if failed
         """
+        if self.DEBUG: print("\n>> creating chained UPP using key \"_{}\"".format(name))
         return self.sign(name, payload, APP_UBIRCH_CHAINED, hash_before_sign=hash_before_sign)
 
     def message_verify(self, name: str, upp: bytes) -> bool:
@@ -537,8 +546,11 @@ class SimProtocol:
         :return: whether the message can be verified
         """
         if upp[1] == APP_UBIRCH_SIGNED:
+            if self.DEBUG: print("\n>> verifying signed UPP")
             return self.verify(name, upp, APP_UBIRCH_SIGNED)
         elif upp[1] == APP_UBIRCH_CHAINED:
+            if self.DEBUG: print("\n>> verifying chained UPP")
             return self.verify(name, upp, APP_UBIRCH_CHAINED)
         else:
+            if self.DEBUG: print("\n>> verifying signature")
             return self.verify(name, upp, 0x00)
