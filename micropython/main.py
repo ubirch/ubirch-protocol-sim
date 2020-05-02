@@ -106,7 +106,7 @@ try:
     print("X.509 certificate [hex]   : " + binascii.hexlify(csr).decode())
     print("X.509 certificate [base64]: " + binascii.b2a_base64(csr).decode())
 except Exception as e:
-    print("-- no certificate with entry ID \"{}\" found on SIM\n".format(cert_id))
+    print("ERROR: getting X.509 certificate failed: {}\n".format(e))
 
 # create a certificate for the device
 # todo this will be replaced by the X.509 certificate from the SIM card
@@ -168,8 +168,8 @@ while True:
         time.sleep(3)
         continue
 
-    print("hash (SHA256): {}".format(binascii.b2a_base64(get_upp_payload(upp)).decode()))
     print("UPP (msgpack): {} ({})\n".format(binascii.hexlify(upp).decode(), len(upp)))
+    print("hash (SHA256): {}".format(binascii.b2a_base64(get_upp_payload(upp)).decode()))
 
     # make sure device is still connected before sending data
     if not nb_iot_connection:  # check WIFI

@@ -13,9 +13,9 @@ from uuid import UUID
 
 
 def nb_iot_attach(lte: LTE, apn: str) -> bool:
+    sys.stdout.write(">> attaching to LTE network ({})".format(apn))
     lte.attach(band=8, apn=apn)
     i = 0
-    sys.stdout.write("-- attaching to the NB-IoT network")
     while not lte.isattached() and i < 60:
         time.sleep(1.0)
         sys.stdout.write(".")
@@ -28,16 +28,16 @@ def nb_iot_attach(lte: LTE, apn: str) -> bool:
 
 
 def nb_iot_connect(lte: LTE) -> bool:
+    sys.stdout.write(">> connecting to LTE network")
     lte.connect()  # start a data session and obtain an IP address
     i = 0
-    sys.stdout.write("-- connecting to the NB-IoT network")
     while not lte.isconnected() and i < 30:
         time.sleep(1.0)
         sys.stdout.write(".")
         i += 1
     print("")
     if lte.isconnected():
-        print("-- connected: " + str(i) + "s")
+        print("-- connected ({}s)".format(i))
         # print('-- IP address: ' + str(lte.ifconfig()))
         return True
     return False
@@ -46,7 +46,7 @@ def nb_iot_connect(lte: LTE) -> bool:
 def set_time() -> bool:
     rtc = machine.RTC()
     i = 0
-    sys.stdout.write("-- setting time")
+    sys.stdout.write(">> setting time")
     rtc.ntp_sync('185.15.72.251', 3600)
     while not rtc.synced() and i < 60:
         sys.stdout.write(".")
@@ -57,22 +57,24 @@ def set_time() -> bool:
 
 
 def wifi_connect(wlan: WLAN, ssid: str, pwd: str) -> bool:
-    nets = wlan.scan()
-    print("-- searching for wifi networks...")
-    for net in nets:
-        if net.ssid == ssid:
-            print('-- wifi network ' + net.ssid + ' found, connecting ...')
-            wlan.connect(ssid, auth=(net.sec, pwd), timeout=5000)
-            while not wlan.isconnected():
-                machine.idle()  # save power while waiting
-            print('-- wifi network connected')
-            print('-- IP address: ' + str(wlan.ifconfig()))
-            return True
+    sys.stdout.write(">> connecting to WLAN network \"{}\" ".format(ssid))
+    wlan.connect(ssid, auth=(WLAN.WPA2, pwd), timeout=5000)
+    i = 0
+    while not wlan.isconnected() and i < 30:
+        machine.idle()  # save power while waiting
+        time.sleep(1.0)
+        sys.stdout.write(".")
+        i += 1
+    print("")
+    if wlan.isconnected():
+        print("-- connected ({}s)".format(i))
+        print("-- IP address: " + str(wlan.ifconfig()))
+        return True
     return False
 
 
 def lte_setup(lte, connection: bool, apn: str) -> bool:
-    print("-- initializing LTE")
+    print(">> initializing LTE")
     lte.init()
 
     if connection:
@@ -90,20 +92,20 @@ def lte_setup(lte, connection: bool, apn: str) -> bool:
 def lte_shutdown(lte):
     try:
         if lte.isconnected():
-            print("-- disconnecting LTE")
+            print(">> disconnecting LTE")
             lte.disconnect()
     except Exception as e:
         sys.print_exception(e)
 
     try:
         if lte.isattached():
-            print("-- detaching LTE")
+            print(">> detaching LTE")
             lte.detach()
     except Exception as e:
         sys.print_exception(e)
 
     try:
-        print("-- deinitializing LTE")
+        print(">> deinitializing LTE")
         lte.deinit()
     except Exception as e:
         sys.print_exception(e)
