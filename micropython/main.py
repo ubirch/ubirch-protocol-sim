@@ -128,16 +128,16 @@ while True:
 
     # reinitialize LTE modem and reconnect to LTE network
     try:
-        lte_setup(lte, nb_iot_connection, cfg.get("apn"))
-        ubirch.reinit(pin)
+        lte_setup(lte, nb_iot_connection, cfg.get("apn"))  # todo check if this is necessary
+        ubirch.reinit(pin)  # todo check if this is necessary
     except Exception as e:
         lte_shutdown(lte)
         error_handler.log(e, LED_PURPLE, reset=True)
 
-    # get data and calculate hash of timestamp, UUID and data to ensure hash is unique
+    # get data
     payload_data = binascii.hexlify(crypto.getrandbits(32))
 
-    # create message
+    # create message with timestamp, UUID and data to ensure unique hash
     message = '{{"ts":{},"id":"{}","data":"{}"}}'.format(
         start_time,
         device_uuid,
@@ -180,6 +180,7 @@ while True:
         error_handler.log(e, LED_ORANGE)
         continue
 
+    # lte_shutdown(lte)                                       # todo check if this is necessary
     if lte.isconnected():
         print(">> disconnecting LTE")
         lte.disconnect()
