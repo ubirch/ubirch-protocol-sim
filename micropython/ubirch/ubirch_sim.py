@@ -198,6 +198,8 @@ class SimProtocol:
         data = b''
         if code[0:2] == '61':
             (data, code) = self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))
+        if data == b'':
+            code = "NO DATA"
         return data, code
 
     def _get_more_data(self, code: str, data: bytes, cmd: str) -> (bytes, str):
