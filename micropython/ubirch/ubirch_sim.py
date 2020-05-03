@@ -148,6 +148,7 @@ class SimProtocol:
     def _decode_tag(self, encoded: bytes) -> [(int, bytes)]:
         """
         Decode APDU response data that contains tags.
+        Throws exception if tag decoding fails.
         :param encoded: the response data with tags to decode
         :return: (tag, data)
         """
@@ -218,12 +219,12 @@ class SimProtocol:
     def _select_ss_entry(self, entry_id: str) -> (bytes, str):
         """
         Select an entry from the secure storage of the SIM card
+        Throws exception if entry not found or tag decoding fails.
         :param entry_id: the entry ID
         :return: the code response from the operation
         """
         (data, code) = self._execute(STK_APP_SS_SELECT.format(len(entry_id), binascii.hexlify(entry_id).decode()))
         if code == STK_NF:
-            self.lte.pppresume()
             raise Exception("entry \"{}\" not found".format(entry_id))
 
         (data, code) = self._get_response(code)
@@ -343,7 +344,12 @@ class SimProtocol:
         if self.DEBUG: print("\n>> getting X.509 certificate with entry ID \"{}\"".format(certificate_entry_id))
         self.lte.pppsuspend()
         # select SS certificate entry
-        (data, code) = self._select_ss_entry(certificate_entry_id)
+        try:
+            (data, code) = self._select_ss_entry(certificate_entry_id)
+        except Exception:
+            self.lte.pppresume()
+            raise
+
         if code == STK_OK:
             # get the certificate
             (data, code) = self._execute(STK_APP_CERT_GET.format(0))
@@ -372,8 +378,12 @@ class SimProtocol:
         if self.DEBUG: print("\n>> getting entry title of entry with ID \"{}\"".format(entry_id))
         self.lte.pppsuspend()
         # select SS entry
-        (data, code) = self._select_ss_entry(entry_id)
-        self.lte.pppresume()
+        try:
+            (data, code) = self._select_ss_entry(entry_id)
+        except Exception:
+            raise
+        finally:
+            self.lte.pppresume()
         if code == STK_OK:
             # get the entry title
             return [tag[1] for tag in self._decode_tag(data) if tag[0] == 0xc0][0]
@@ -409,7 +419,11 @@ class SimProtocol:
         if self.DEBUG: print("\n>> getting public key with entry ID \"{}\"".format(entry_id))
         self.lte.pppsuspend()
         # select SS public key entry
-        (data, code) = self._select_ss_entry(entry_id)
+        try:
+            (data, code) = self._select_ss_entry(entry_id)
+        except Exception:
+            self.lte.pppresume()
+            raise
         if code == STK_OK:
             # get the key
             args = self._encode_tag([(0xD0, bytes([0x00]))])
