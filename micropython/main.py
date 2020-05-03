@@ -190,6 +190,6 @@ while True:
         intervals_without_incident_counter = 0
         continue
 
-    lte_shutdown(lte, detach=False)  # todo check if lte.deinit() is necessary here
+    lte_shutdown(lte, detach=True)  # todo check if lte.deinit() is necessary here
     intervals_without_incident_counter += 1
     sleep_until_next_interval(start_time, interval)

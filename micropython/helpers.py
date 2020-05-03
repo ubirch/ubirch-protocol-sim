@@ -21,6 +21,8 @@ def wake_up() -> float:
 def sleep_until_next_interval(start_time, interval):
     # wait for next interval
     sleep_time = interval - int(time.time() - start_time)
+    if sleep_time < 10:
+        sleep_time = 10
     if sleep_time > 0:
         print(">> sleep for {} seconds".format(sleep_time))
         set_led(0)  # LED off
@@ -91,11 +93,11 @@ def lte_setup(lte: LTE, connect: bool, apn: str or None):
     print(">> initializing LTE")
     lte.init()
     if connect:
-        if not lte.isattached():
-            nb_iot_attach(lte, apn)
         if not lte.isconnected():
-            nb_iot_connect(lte)
-
+            if not lte.isattached():
+                nb_iot_attach(lte, apn)
+            if not lte.isconnected():
+                nb_iot_connect(lte)
 
 def lte_shutdown(lte: LTE, detach=True):
     if lte.isconnected():
