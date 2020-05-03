@@ -180,9 +180,6 @@ while True:
         error_handler.log(e, LED_ORANGE)
         continue
 
-    # lte_shutdown(lte)                                       # todo check if this is necessary
-    if lte.isconnected():
-        print(">> disconnecting LTE")
-        lte.disconnect()
+    lte_shutdown(lte, detach=False)  # todo check if lte.deinit() is necessary here
 
     sleep_until_next_interval(start_time, interval)
