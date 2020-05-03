@@ -161,7 +161,6 @@ class SimProtocol:
                 data_len = int(encoded[idx]) << 8 | int(encoded[idx + 1])
                 idx += 2
             if len(encoded[idx:]) < data_len:
-                self.lte.pppresume()
                 raise Exception("tag %02x has not enough data %d < %d".format(tag, len(encoded[idx:]), data_len))
             endIdx = idx + data_len
             data = encoded[idx:endIdx]
