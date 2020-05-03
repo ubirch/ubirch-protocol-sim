@@ -97,15 +97,12 @@ def lte_setup(lte: LTE, connect: bool, apn: str or None):
             nb_iot_connect(lte)
 
 
-def lte_shutdown(lte: LTE):
+def lte_shutdown(lte: LTE, detach=True):
     if lte.isconnected():
         print(">> disconnecting LTE")
         lte.disconnect()
-    if lte.isattached():
-        print(">> detaching LTE")
-        lte.detach()
-    print(">> deinitializing LTE")
-    lte.deinit()
+    print(">> de-initializing LTE")
+    lte.deinit(detach=detach, reset=False)
 
 
 def bootstrap(imsi: str, server: str, auth: str) -> str:
