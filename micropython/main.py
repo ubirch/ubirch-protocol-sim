@@ -6,21 +6,10 @@ import sys
 import ubinascii as binascii
 from network import WLAN, LTE
 
-from error_handling import *
 from helpers import *
 from ubirch import SimProtocol
 
 print("\n- - - UBIRCH protocol (SIM) - - -\n")
-
-try:
-    # mount SD card if there is one
-    sd = machine.SD()
-    os.mount(sd, '/sd')
-    SD_CARD_MOUNTED = True
-except OSError:
-    SD_CARD_MOUNTED = False
-
-error_handler = ErrorHandler(file_logging_enabled=True, sd_card=SD_CARD_MOUNTED)
 
 # load some necessary config (request API keys from ubirch)
 with open("config.json") as f:
@@ -30,7 +19,7 @@ UPP_SERVER = 'niomon.{}.ubirch.com'.format(cfg["env"])
 KEY_SERVER = 'key.{}.ubirch.com'.format(cfg["env"])
 BOOT_SERVER = 'api.console.{}.ubirch.com'.format(cfg["env"])
 
-device_name = "ukey"
+device_name = "U"
 cert_id = "ucrt"
 
 lte = LTE()
@@ -42,7 +31,11 @@ if 'wifi' in cfg:
     try:
         wifi_connect(wlan, cfg["wifi"]["ssid"], cfg["wifi"]["pass"])
     except Exception as e:
-        error_handler.log(e, LED_PURPLE, reset=True)
+        set_led(LED_PURPLE)
+        sys.print_exception(e)
+        print("Resetting device...")
+        time.sleep(3)
+        machine.reset()
 else:
     nb_iot_connection = True
     # check Network Coverage for UE device (i.e LTE modem)
@@ -53,22 +46,34 @@ else:
     try:
         lte_setup(lte, nb_iot_connection, cfg.get("apn"))
     except Exception as e:
+        set_led(LED_PURPLE)
+        sys.print_exception(e)
         lte_shutdown(lte)
-        error_handler.log(e, LED_PURPLE, reset=True)
+        print("Resetting device...")
+        time.sleep(3)
+        machine.reset()
 
 try:
     set_time()
 except Exception as e:
+    set_led(LED_PURPLE)
+    sys.print_exception(e)
     lte_shutdown(lte)
-    error_handler.log(e, LED_PURPLE, reset=True)
+    print("Resetting device...")
+    time.sleep(3)
+    machine.reset()
 
 # initialize the ubirch protocol interface
 ubirch = None
 try:
     ubirch = SimProtocol(lte=lte, at_debug=cfg.get("debug", False))
 except Exception as e:
+    set_led(LED_RED)
+    sys.print_exception(e)
     lte_shutdown(lte)
-    error_handler.log(e, LED_RED, reset=True)
+    print("Resetting device...")
+    time.sleep(3)
+    machine.reset()
 
 # get IMSI from SIM
 imsi = ubirch.get_imsi()
@@ -84,15 +89,19 @@ else:
     try:
         pin = bootstrap(imsi, BOOT_SERVER, cfg["password"])
     except Exception as e:
+        set_led(LED_ORANGE)
+        sys.print_exception(e)
         lte_shutdown(lte)
-        error_handler.log(e, LED_ORANGE, reset=True)
+        print("Resetting device...")
+        time.sleep(3)
+        machine.reset()
 
     with open(pin_file, "wb") as f:
         f.write(pin.encode())
 
 # use PIN to authenticate against the SIM application
 if not ubirch.sim_auth(pin):
-    error_handler.log("ERROR: PIN not accepted", LED_RED)
+    print("ERROR: PIN not accepted")
     sys.exit(1)
 
 # get UUID from SIM
@@ -118,8 +127,12 @@ print("certificate: {}\n".format(csr.decode()))
 try:
     register_key(KEY_SERVER, cfg["password"], csr)
 except Exception as e:
+    set_led(LED_ORANGE)
+    sys.print_exception(e)
     lte_shutdown(lte)
-    error_handler.log(e, LED_ORANGE, reset=True)
+    print("Resetting device...")
+    time.sleep(3)
+    machine.reset()
 
 interval = 60
 print("-- starting loop (interval = {} sec)\n".format(interval))
@@ -131,8 +144,12 @@ while True:
         lte_setup(lte, nb_iot_connection, cfg.get("apn"))  # todo check if this is necessary
         ubirch.reinit(pin)  # todo check if this is necessary
     except Exception as e:
+        set_led(LED_PURPLE)
+        sys.print_exception(e)
         lte_shutdown(lte)
-        error_handler.log(e, LED_PURPLE, reset=True)
+        print("Resetting device...")
+        time.sleep(3)
+        machine.reset()
 
     # get data
     payload_data = binascii.hexlify(crypto.getrandbits(32))
@@ -148,7 +165,9 @@ while True:
     try:
         upp = ubirch.message_chained(device_name, message.encode(), hash_before_sign=True)
     except Exception as e:
-        error_handler.log(e, LED_RED)
+        set_led(LED_RED)
+        sys.print_exception(e)
+        time.sleep(3)
         continue
 
     print("UPP (msgpack): {} ({})\n".format(binascii.hexlify(upp).decode(), len(upp)))
@@ -166,8 +185,12 @@ while True:
             if not wlan.isconnected():
                 wifi_connect(wlan, cfg["wifi"]["ssid"], cfg["wifi"]["pass"])
     except Exception as e:
+        set_led(LED_PURPLE)
+        sys.print_exception(e)
         lte_shutdown(lte)
-        error_handler.log(e, LED_PURPLE, reset=True)
+        print("Resetting device...")
+        time.sleep(3)
+        machine.reset()
 
     # # # # # # # # # # # # # # # # # # #
     # send message to your backend here #
@@ -177,7 +200,9 @@ while True:
     try:
         post(UPP_SERVER, device_uuid, cfg["password"], upp)
     except Exception as e:
-        error_handler.log(e, LED_ORANGE)
+        set_led(LED_ORANGE)
+        sys.print_exception(e)
+        time.sleep(3)
         continue
 
     lte_shutdown(lte, detach=False)  # todo check if lte.deinit() is necessary here

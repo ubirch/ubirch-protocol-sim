@@ -1,6 +1,7 @@
 import asn1
 import json
 import machine
+import pycom
 import sys
 import time
 import ubinascii as binascii
@@ -8,9 +9,19 @@ import urequests as requests
 
 from network import WLAN, LTE
 
-from error_handling import set_led, LED_GREEN
 from ubirch import SimProtocol
 from uuid import UUID
+
+LED_GREEN = 0x002200
+LED_YELLOW = 0x222200
+LED_ORANGE = 0x442200
+LED_RED = 0x7f0000
+LED_PURPLE = 0x220022
+
+
+def set_led(led_color):
+    pycom.heartbeat(False)
+    pycom.rgbled(led_color)
 
 
 def wake_up() -> float:
