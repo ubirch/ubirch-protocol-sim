@@ -122,8 +122,10 @@ except Exception as e:
     error_handler.log(e, LED_ORANGE, reset=True)
 
 interval = 60
+intervals_without_incident_counter = 0
 print("-- starting loop (interval = {} sec)\n".format(interval))
 while True:
+    print("\n({})".format(intervals_without_incident_counter))
     start_time = wake_up()  # start timer
 
     # reinitialize LTE modem and reconnect to LTE network
@@ -132,7 +134,7 @@ while True:
         ubirch.reinit(pin)  # todo check if this is necessary
     except Exception as e:
         lte_shutdown(lte)
-        error_handler.log(e, LED_PURPLE, reset=True)
+        error_handler.log(e, LED_PURPLE, counter=intervals_without_incident_counter, reset=True)
 
     # get data
     payload_data = binascii.hexlify(crypto.getrandbits(32))
@@ -142,13 +144,14 @@ while True:
         start_time,
         device_uuid,
         binascii.b2a_base64(payload_data).decode().rstrip('\n'))
-    print("message: {}\n".format(message))
+    print("\nmessage: {}\n".format(message))
 
     # generate UPP with the message hash using the automatic hashing functionality of the SIM card
     try:
         upp = ubirch.message_chained(device_name, message.encode(), hash_before_sign=True)
     except Exception as e:
-        error_handler.log(e, LED_RED)
+        error_handler.log(e, LED_RED, counter=intervals_without_incident_counter)
+        intervals_without_incident_counter = 0
         continue
 
     print("UPP (msgpack): {} ({})\n".format(binascii.hexlify(upp).decode(), len(upp)))
@@ -167,7 +170,7 @@ while True:
                 wifi_connect(wlan, cfg["wifi"]["ssid"], cfg["wifi"]["pass"])
     except Exception as e:
         lte_shutdown(lte)
-        error_handler.log(e, LED_PURPLE, reset=True)
+        error_handler.log(e, LED_PURPLE, counter=intervals_without_incident_counter, reset=True)
 
     # # # # # # # # # # # # # # # # # # #
     # send message to your backend here #
@@ -177,9 +180,10 @@ while True:
     try:
         post(UPP_SERVER, device_uuid, cfg["password"], upp)
     except Exception as e:
-        error_handler.log(e, LED_ORANGE)
+        error_handler.log(e, LED_ORANGE, counter=intervals_without_incident_counter)
+        intervals_without_incident_counter = 0
         continue
 
     lte_shutdown(lte, detach=False)  # todo check if lte.deinit() is necessary here
-
+    intervals_without_incident_counter += 1
     sleep_until_next_interval(start_time, interval)

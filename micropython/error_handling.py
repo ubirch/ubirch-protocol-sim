@@ -16,11 +16,12 @@ def set_led(led_color):
     pycom.rgbled(led_color)
 
 
-def print_to_console(error):
+def print_to_console(error: str or Exception, counter: int):
     if isinstance(error, Exception):
         sys.print_exception(error)
     else:
         print(error)
+    print("({})\n".format(counter))
 
 
 class ErrorHandler:
@@ -30,11 +31,11 @@ class ErrorHandler:
         if file_logging_enabled:
             self.logfile = FileLogger(sd_card)
 
-    def log(self, error: str or Exception, led_color: int, reset: bool = False):
+    def log(self, error: str or Exception, led_color: int, counter: int = 0, reset: bool = False):
         set_led(led_color)
-        print_to_console(error)
+        print_to_console(error, counter)
         if self.logfile is not None:
-            self.logfile.log(error)
+            self.logfile.log(error, counter)
         machine.idle()
         time.sleep(3)
         if reset:
@@ -59,7 +60,7 @@ class FileLogger:
         print("-- max size: {:.1f} kb".format(self.MAX_FILE_SIZE / 1000.0))
         print("-- free flash memory: {:d} kb\n".format(os.getfree('/flash')))
 
-    def log(self, error: str or Exception):
+    def log(self, error: str or Exception, counter: int):
         with open(self.path + self.logfile_name, 'a') as f:
             # start overwriting oldest logs once file reached its max size
             # known issue:
@@ -76,6 +77,8 @@ class FileLogger:
                 sys.print_exception(error, f)
             else:
                 f.write(error + "\n")
+
+            f.write("({})\n\n".format(counter))
 
             # remember current file position
             self.file_position = f.tell()
