@@ -128,13 +128,19 @@ while True:
     print("\n({})".format(intervals_without_incident_counter))
     start_time = wake_up()  # start timer
 
-    # reinitialize LTE modem and reconnect to LTE network
+    # reinitialize LTE and reconnect to LTE network
     try:
         lte_setup(lte, nb_iot_connection, cfg.get("apn"))  # todo check if this is necessary
-        ubirch.reinit(pin)  # todo check if this is necessary
     except Exception as e:
         lte_shutdown(lte)
         error_handler.log(e, LED_PURPLE, counter=intervals_without_incident_counter, reset=True)
+
+    # reinitialize modem and SIM
+    try:
+        ubirch.reinit(pin)  # todo check if this is necessary
+    except Exception as e:
+        lte_shutdown(lte)
+        error_handler.log(e, LED_ORANGE, counter=intervals_without_incident_counter, reset=True)
 
     # get data
     payload_data = binascii.hexlify(crypto.getrandbits(32))
