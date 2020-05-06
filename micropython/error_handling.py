@@ -50,18 +50,20 @@ class FileLogger:
     def __init__(self, sd_card_mounted: bool = False):
         # set up error logging to log file
         self.rtc = machine.RTC()
-        self.path = '/sd/' if sd_card_mounted else ''
-        self.logfile_name = 'log.txt'
-        with open(self.path + self.logfile_name, 'a') as f:
+        self.logfile = ('/sd/' if sd_card_mounted else '') + 'log.txt'
+        with open(self.logfile, 'a') as f:
             self.file_position = f.tell()
         print(">> file logging enabled")
-        print("-- file: {}".format(self.path + self.logfile_name))
-        print("-- size: {:.1f} kb".format(self.file_position / 1000.0))
-        print("-- max size: {:.1f} kb".format(self.MAX_FILE_SIZE / 1000.0))
-        print("-- free flash memory: {:d} kb\n".format(os.getfree('/flash')))
+        print("-- file: \"{}\"".format(self.logfile))
+        print("-- current size:      {: 4d} KB".format(int(self.file_position / 1000)))
+        print("-- maximal size:      {: 4d} KB".format(int(self.MAX_FILE_SIZE / 1000)))
+        print("-- free flash memory:{: 4d} KB".format(os.getfree('/flash')))
+        if sd_card_mounted:
+            print("-- free SD memory:   {: 4d} MB".format(int(os.getfree('/sd') / 1000)))
+        print("")
 
     def log(self, error: str or Exception, counter: int):
-        with open(self.path + self.logfile_name, 'a') as f:
+        with open(self.logfile, 'a') as f:
             # start overwriting oldest logs once file reached its max size
             # known issue:
             #  once file reached its max size, file position will always be set to beginning after device reset
