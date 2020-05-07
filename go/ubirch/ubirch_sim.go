@@ -267,6 +267,9 @@ func (p *Protocol) DeleteAll() error {
 // Generate a random number of bytes using the SIM cards cryptographic rnd.
 // The length of the byte array is determined by the length parameter.
 func (p *Protocol) Random(len int) ([]byte, error) {
+	if p.Debug {
+		log.Printf(">> generate random number (%d bytes)", len)
+	}
 	r, code, err := p.execute(stkAppRandom, len)
 	if err != nil {
 		return nil, err
@@ -278,12 +281,12 @@ func (p *Protocol) Random(len int) ([]byte, error) {
 }
 
 func (p *Protocol) GetIMSI() (string, error) {
-	const IMSI_LEN = 15
-	var imsi string
-	var err error
 	if p.Debug {
 		log.Println(">> get IMSI")
 	}
+	const IMSI_LEN = 15
+	var imsi string
+	var err error
 	// sometimes the modem is not ready to retrieve the IMSI yet, so we try again, if it fails
 	for i := 0; i < 3; i++ {
 		response, err := p.Send("AT+CIMI")
@@ -307,6 +310,9 @@ func (p *Protocol) GetIMSI() (string, error) {
 
 // [WIP] Store an ECC public key to the SIM cards secure storage
 func (p *Protocol) PutKey(name string, uid uuid.UUID, pubKey []byte) error {
+	if p.Debug {
+		log.Printf(">> put key \"%s\"", name)
+	}
 	uidBytes, err := uid.MarshalBinary()
 	if err != nil {
 		return err
@@ -335,6 +341,9 @@ func (p *Protocol) PutKey(name string, uid uuid.UUID, pubKey []byte) error {
 // Get the public key for a given name from the SIM storage.
 // Returns a byte array with the raw bytes of the public key.
 func (p *Protocol) GetKey(name string) ([]byte, error) {
+	if p.Debug {
+		log.Printf(">> get key \"%s\"", name)
+	}
 	// select SS entry
 	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
 	if err != nil {
@@ -383,6 +392,9 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 
 // Get the UUID for a given name from the SIM storage.
 func (p *Protocol) GetUUID(name string) (uuid.UUID, error) {
+	if p.Debug {
+		log.Printf(">> get UUID of \"%s\"", name)
+	}
 	// select SS entry
 	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
 	if err != nil {
@@ -444,6 +456,9 @@ func (p *Protocol) GetVerificationKey(uid uuid.UUID) ([]byte, error) {
 // ("_") and the public key gets the name as is. This API automatically selects the right name.
 // FIXME overwrites existing keys
 func (p *Protocol) GenerateKey(name string, uid uuid.UUID) error {
+	if p.Debug {
+		log.Printf(">> generate new key \"%s\"", name)
+	}
 	uidBytes, err := uid.MarshalBinary()
 	if err != nil {
 		return err
@@ -472,6 +487,9 @@ func (p *Protocol) GenerateKey(name string, uid uuid.UUID) error {
 }
 
 func (p *Protocol) GenerateCSR(entryID string, uid uuid.UUID) ([]byte, error) {
+	if p.Debug {
+		log.Printf(">> generate CSR for \"%s\"", entryID)
+	}
 	certAttributes, err := p.encodeBinary([]Tag{
 		{0xD4, []byte("DE")},
 		{0xD5, []byte("Berlin")},
@@ -531,6 +549,9 @@ func (p *Protocol) GenerateCSR(entryID string, uid uuid.UUID) ([]byte, error) {
 
 // Store a X.509 certificate in the secure storage of the SIM
 func (p *Protocol) StoreCertificate(entryID string, uid uuid.UUID, cert []byte) error {
+	if p.Debug {
+		log.Printf(">> store certificate for \"%s\"", entryID)
+	}
 	uidBytes, err := uid.MarshalBinary()
 	if err != nil {
 		return err
@@ -567,6 +588,9 @@ func (p *Protocol) StoreCertificate(entryID string, uid uuid.UUID, cert []byte) 
 }
 
 func (p *Protocol) UpdateCertificate(entryID string, newCert []byte) error {
+	if p.Debug {
+		log.Printf(">> update certificate for \"%s\"", entryID)
+	}
 	args, err := p.encode([]Tag{
 		{0xC3, newCert},
 	})
@@ -612,6 +636,9 @@ func (p *Protocol) UpdateCertificate(entryID string, newCert []byte) error {
 // Get the X.509 certificate for a given entry ID from the SIM storage.
 // Returns a byte array with the raw bytes of the certificate.
 func (p *Protocol) GetCertificate(entryID string) ([]byte, error) {
+	if p.Debug {
+		log.Printf(">> get certificate for \"%s\"", entryID)
+	}
 	// select SS entry
 	_, code, err := p.execute(stkAppSsEntrySelect, len(entryID), hex.EncodeToString([]byte(entryID)))
 	if err != nil {
@@ -659,6 +686,9 @@ func (p *Protocol) GetCertificate(entryID string) ([]byte, error) {
 // The method returns the signed data in the form of a ubirch-protocol packet (UPP) or
 // the raw signature in case protocol is 0.
 func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign bool) ([]byte, error) {
+	if p.Debug {
+		log.Printf(">> sign with key \"%s\"", name)
+	}
 	args, err := p.encode([]Tag{
 		{0xc4, []byte("_" + name)}, // Entry ID of signing key
 		{0xd0, []byte{0x21}},       // Algorithm to be used: ALG_ECDSA_SHA_256
@@ -712,6 +742,9 @@ func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign
 // pure value data is executed.
 // Returns true or false.
 func (p *Protocol) Verify(name string, value []byte, protocol byte) (bool, error) {
+	if p.Debug {
+		log.Printf(">> verify with key \"%s\"", name)
+	}
 	args, err := p.encode([]Tag{
 		{0xc4, []byte(name)},
 		{0xd0, []byte{0x21}},
