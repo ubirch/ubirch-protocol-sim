@@ -34,6 +34,7 @@ const (
 	// APDU response codes
 	ApduOk       = 0x9000
 	ApduMoreData = 0x6310
+	ApduNotFound = 0x6A88
 
 	// Application Identifier
 	stkAppDef = "D2760001180002FF34108389C0028B02"
@@ -349,6 +350,9 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if code == ApduNotFound {
+		return nil, fmt.Errorf("entry \"%s\" not found", name)
+	}
 	_, code, err = p.response(code)
 	if err != nil {
 		return nil, err
@@ -399,6 +403,9 @@ func (p *Protocol) GetUUID(name string) (uuid.UUID, error) {
 	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
 	if err != nil {
 		return uuid.Nil, err
+	}
+	if code == ApduNotFound {
+		return uuid.Nil, fmt.Errorf("entry \"%s\" not found", name)
 	}
 	data, code, err := p.response(code)
 	if err != nil {
@@ -603,6 +610,9 @@ func (p *Protocol) UpdateCertificate(entryID string, newCert []byte) error {
 	if err != nil {
 		return err
 	}
+	if code == ApduNotFound {
+		return fmt.Errorf("entry \"%s\" not found", entryID)
+	}
 	_, code, err = p.response(code)
 	if err != nil {
 		return err
@@ -643,6 +653,9 @@ func (p *Protocol) GetCertificate(entryID string) ([]byte, error) {
 	_, code, err := p.execute(stkAppSsEntrySelect, len(entryID), hex.EncodeToString([]byte(entryID)))
 	if err != nil {
 		return nil, err
+	}
+	if code == ApduNotFound {
+		return nil, fmt.Errorf("entry \"%s\" not found", entryID)
 	}
 	_, code, err = p.response(code)
 	if err != nil {

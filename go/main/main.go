@@ -149,7 +149,7 @@ func main() {
 	// todo this will be replaced by the X.509 cert from SIM card
 	key, err := sim.GetKey(key_name)
 	if err != nil {
-		log.Fatalf("no key entry found for %s", key_name)
+		log.Fatalf("no key entry found for %s: %v", key_name, err)
 	}
 	log.Printf("public key: base64 %s", base64.StdEncoding.EncodeToString(key))
 	log.Printf("public key: hex    %s", hex.EncodeToString(key))
