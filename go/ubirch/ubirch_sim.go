@@ -702,10 +702,10 @@ func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign
 	}
 	_, code, err := p.execute(stkAppSignInit, protocol, len(args)/2, args)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sign init failed: %v", err)
 	}
 	if code != ApduOk {
-		return nil, fmt.Errorf("sign init failed: %v", code)
+		return nil, fmt.Errorf("sign init failed: APDU error: %x", code)
 	}
 
 	data := hex.EncodeToString(value)
@@ -718,7 +718,7 @@ func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign
 		chunk := data[:end]
 		_, code, err = p.execute(stkAppSignFinal, finalBit, len(chunk)/2, chunk)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("sign update/final failed: %v", err)
 		}
 		if code != ApduOk {
 			break
@@ -752,12 +752,16 @@ func (p *Protocol) Verify(name string, value []byte, protocol byte) (bool, error
 	if err != nil {
 		return false, err
 	}
+
+	if p.Debug {
+		log.Printf(">> verify init")
+	}
 	_, code, err := p.execute(stkAppVerifyInit, protocol, len(args)/2, args)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("verify init failed: %v", err)
 	}
 	if code != ApduOk {
-		return false, fmt.Errorf("verify init failed: %v", code)
+		return false, fmt.Errorf("verify init failed: APDU error: %x", code)
 	}
 
 	data := hex.EncodeToString(value)
@@ -768,12 +772,16 @@ func (p *Protocol) Verify(name string, value []byte, protocol byte) (bool, error
 			end = len(data)
 		}
 		chunk := data[:end]
+
+		if p.Debug {
+			log.Printf(">> verify update/final")
+		}
 		_, code, err = p.execute(stkAppVerifyFinal, finalBit, len(chunk)/2, chunk)
 		if err != nil {
-			return false, err
+			return false, fmt.Errorf("verify update/final failed: %v", err)
 		}
 		if code != ApduOk {
-			return false, nil
+			return false, fmt.Errorf("verify update/final failed: APDU error: %x", code)
 		}
 		data = data[end:]
 	}
