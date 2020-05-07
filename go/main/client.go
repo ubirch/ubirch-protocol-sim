@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/google/uuid"
 	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
 	"io/ioutil"
@@ -88,8 +89,7 @@ func post(upp []byte, url string, headers map[string]string) (int, []byte, error
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(upp))
 	if err != nil {
-		log.Printf("can't make new post request: %v", err)
-		return 0, nil, err
+		return 0, nil, fmt.Errorf("can't make new post request: %v", err)
 	}
 
 	for k, v := range headers {
@@ -98,14 +98,16 @@ func post(upp []byte, url string, headers map[string]string) (int, []byte, error
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("post failed; %v", err)
-		return 0, nil, err
+		return 0, nil, fmt.Errorf("sending post request failed: %v", err)
 	}
 	//noinspection GoUnhandledErrorResult
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
-	return resp.StatusCode, body, err
+	if err != nil {
+		return resp.StatusCode, nil, fmt.Errorf("reading response body failed: %v", err)
+	}
+	return resp.StatusCode, body, nil
 }
 
 type bootstrapInfo struct {
