@@ -204,7 +204,7 @@ func (p *Protocol) findTag(tags []Tag, tagID byte) ([]byte, error) {
 
 func (p *Protocol) selectApplet() error {
 	if p.Debug {
-		log.Println("SIM applet select")
+		log.Println(">> select SIM applet")
 	}
 	_, code, err := p.execute(stkAppSelect, stkAppDef)
 	if err != nil {
@@ -218,7 +218,7 @@ func (p *Protocol) selectApplet() error {
 
 func (p *Protocol) authenticate(pin string) error {
 	if p.Debug {
-		log.Println("SIM authenticating")
+		log.Println(">> authenticate")
 	}
 	_, code, err := p.execute(stkAuthPin, len(pin), hex.EncodeToString([]byte(pin)))
 	if err != nil {
@@ -248,7 +248,7 @@ func (p *Protocol) Init(pin string) error {
 // This may not work, depending on the application settings.
 func (p *Protocol) DeleteAll() error {
 	if p.Debug {
-		log.Println("deleting ALL SS entries")
+		log.Println(">> delete ALL SS entries")
 	}
 	_, code, err := p.execute(stkAppDeleteAll)
 	if err != nil {
@@ -278,7 +278,7 @@ func (p *Protocol) GetIMSI() (string, error) {
 	var imsi string
 	var err error
 	if p.Debug {
-		log.Println("get IMSI")
+		log.Println(">> get IMSI")
 	}
 	// sometimes the modem is not ready to retrieve the IMSI yet, so we try again, if it fails
 	for i := 0; i < 3; i++ {
