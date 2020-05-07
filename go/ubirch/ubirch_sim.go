@@ -232,14 +232,18 @@ func (p *Protocol) authenticate(pin string) error {
 
 // Initialize the SIM card application by authenticating with the SIM with the given pin.
 func (p *Protocol) Init(pin string) error {
+	var err error
 	// sometimes the modem is not ready yet, so we try again, if it fails
 	for i := 0; i < 3; i++ {
-		err := p.selectApplet()
+		err = p.selectApplet()
 		if err != nil {
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 		break
+	}
+	if err != nil {
+		return err
 	}
 	return p.authenticate(pin)
 }
@@ -438,6 +442,7 @@ func (p *Protocol) GetVerificationKey(uid uuid.UUID) ([]byte, error) {
 // Generate a key pair on the SIM card and store it using the given name and the UUID that is
 // later used for the ubirch-protocol. The name for private keys is prefixed with an underscore
 // ("_") and the public key gets the name as is. This API automatically selects the right name.
+// FIXME overwrites existing keys
 func (p *Protocol) GenerateKey(name string, uid uuid.UUID) error {
 	uidBytes, err := uid.MarshalBinary()
 	if err != nil {
