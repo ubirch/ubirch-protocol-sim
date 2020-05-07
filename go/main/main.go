@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"github.com/google/uuid"
 	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
 	"go.bug.st/serial.v1"
 	"log"
@@ -51,6 +53,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("loading configuration failed: %v", err)
 	}
+
 	sim := ubirch.Protocol{SimInterface: &serialPort, Debug: conf.Debug}
 
 	// get SIM IMSI
@@ -58,12 +61,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("getting IMSI failed: %v", err)
 	}
-	log.Println(imsi)
+	log.Printf("IMSI: %s", imsi)
 
-	// bootstrap SIM identity and retrieve PIN
-	PIN, err := bootstrap(imsi, conf.BootstrapService, conf.Password)
-	if err != nil {
-		log.Fatalf("bootstrapping failed: %v", err)
+	// check if PIN is set in config and bootstrap if unset
+	PIN := conf.Pin
+	if PIN == "" {
+		PIN, err = getPIN(imsi, conf)
+		if err != nil {
+			log.Fatalf("bootstrapping failed: %v", err)
+		}
 	}
 	log.Printf("PIN: %s", PIN)
 
@@ -77,12 +83,20 @@ func main() {
 	key_name := "ukey"
 
 	//// generate a key pair
-	//uuidBytes, _ := hex.DecodeString(conf.Uuid)
+	//// FIXME overwrites existing keys
+	//uuidBytes, err := hex.DecodeString(conf.Uuid)
+	//if err != nil {
+	//	log.Fatalf("failed to decode hex string: %v", err)
+	//}
 	//uid, err := uuid.FromBytes(uuidBytes)
+	//if err != nil {
+	//	log.Fatalf("failed to parse UUID: %v", err)
+	//}
 	//err = sim.GenerateKey(key_name, uid)
 	//if err != nil {
-	//	log.Printf("key may already exist: %v", err)
+	//	log.Printf("generating key \"%s\" failed: %v", key_name, err)
 	//}
+	//
 	//// generate CSR
 	//csr, err := sim.GenerateCSR(key_name, uid)
 	//if err != nil {
@@ -118,27 +132,16 @@ func main() {
 	simCert, err := sim.GetCertificate(cert_name)
 	if err != nil {
 		log.Fatalf("retrieving certificate from SIM failed. %s", err)
-	} else {
-		log.Printf("retrieved certificate from SIM: %x", simCert)
 	}
-	//// register public key using certificate from SIM todo not implemented in backend yet
-	//statusCode, respBody, err := post(simCert, conf.KeyService, map[string]string{"Content-Type": "application/json"})
-	//if err != nil {
-	//	log.Printf("unable to read response body: %v", err)
-	//} else if statusCode != http.StatusOK {
-	//	log.Printf("request to %s failed with status code %d: %s", conf.KeyService, statusCode, respBody)
-	//} else {
-	//	log.Printf("response: %s", string(respBody))
-	//}
+	log.Printf("retrieved certificate from SIM: %x", simCert)
 
-	// get the public key (see next part, registering) todo this will be replaced by the X.509 cert from SIM card
+	// get the public key from SIM card
 	key, err := sim.GetKey(key_name)
 	if err != nil {
-		log.Fatalf("no key entry found for %s", key_name)
-	} else {
-		log.Printf("public key: base64 %s", base64.StdEncoding.EncodeToString(key))
-		log.Printf("public key: hex    %s", hex.EncodeToString(key))
+		log.Fatalf("no key entry found for %s: %v", key_name, err)
 	}
+	log.Printf("public key: base64 %s", base64.StdEncoding.EncodeToString(key))
+	log.Printf("public key: hex    %s", hex.EncodeToString(key))
 
 	// get the UUID from SIM card
 	uid, err := sim.GetUUID(key_name)
@@ -147,107 +150,125 @@ func main() {
 	}
 	log.Printf("UUID: %s", uid.String())
 
-	// register public key
+	// generate a self signed certificate for the public key
+	// todo this will be replaced by the X.509 cert from SIM card
 	cert, err := getSignedCertificate(&sim, key_name, uid)
 	if err != nil {
-		log.Printf("could not generate certificate: %v", err)
-	} else {
-		log.Printf("certificate: %s", string(cert))
-		statusCode, respBody, err := post(cert, conf.KeyService, map[string]string{"Content-Type": "application/json"})
-		if err != nil {
-			log.Printf("unable to read response body: %v", err)
-		} else if statusCode != http.StatusOK {
-			log.Printf("request to %s failed with status code %d: %s", conf.KeyService, statusCode, respBody)
-		} else {
-			log.Printf("response: %s", string(respBody))
-		}
+		log.Fatalf("could not generate key certificate: %v", err)
 	}
+	log.Printf("certificate: %s", string(cert))
+
+	// register public key at the UBIRCH backend
+	registerKey(cert, conf)
 
 	// send a signed message
 	type Payload struct {
 		Timestamp int
+		ID        string
 		Value     int
 	}
-	p := Payload{int(time.Now().Unix()), int(rand.Uint32())}
 
+	p := Payload{int(time.Now().Unix()), uid.String(), int(rand.Uint32())}
 	pRendered, err := json.Marshal(p)
 	if err != nil {
-		log.Printf("can't render payload as json: %v", err)
-	} else {
-		log.Print(string(pRendered))
-
-		// create A hash from the payload to be inserted into the UPP
-		digest := sha256.Sum256(pRendered)
-		log.Printf("payload hash: base64 %s", base64.StdEncoding.EncodeToString(digest[:]))
-		log.Printf("payload hash: hex    %s", hex.EncodeToString(digest[:]))
-
-		// create A signed UPP message and send it to the ubirch backend
-		//upp, err := sim.Sign(name, digest[:], ubirch.Signed, false)
-		upp, err := sim.Sign(key_name, pRendered, ubirch.Signed, true) // use automatic hashing
-		if err != nil {
-			log.Printf("signing failed: %v", err)
-		} else {
-			log.Printf("upp: %s", hex.EncodeToString(upp))
-
-			statusCode, respBody, err := post(upp, conf.Niomon, map[string]string{
-				"X-Ubirch-Hardware-Id": uid.String(),
-				"X-Ubirch-Auth-Type":   "ubirch",
-				"X-Ubirch-Credential":  base64.StdEncoding.EncodeToString([]byte(conf.Password)),
-			})
-			if err != nil {
-				log.Printf("unable to read response body: %v", err)
-			} else if statusCode != http.StatusOK {
-				log.Printf("request to %s failed with status code %d: %s", conf.Niomon, statusCode, hex.EncodeToString(respBody))
-			} else {
-				log.Printf("response: %s", hex.EncodeToString(respBody))
-			}
-		}
-
-		// try to verify the upp locally
-		ok, err := sim.Verify(key_name, upp, ubirch.Signed)
-		if err != nil {
-			log.Printf("verification (local) failed with error: %v", err)
-		} else if ok {
-			log.Printf("verification: %v", ok)
-		}
-
+		log.Fatalf("can't render payload as json: %v", err)
 	}
+	log.Print(string(pRendered))
 
-	for i := 0; i < 3; i++ {
-		p := Payload{int(time.Now().Unix()), int(rand.Uint32())}
+	// create a hash from the payload
+	digest := sha256.Sum256(pRendered)
+	log.Printf("data hash [base64]: %s", base64.StdEncoding.EncodeToString(digest[:]))
 
+	// create a signed UPP message
+	//upp, err := sim.Sign(name, digest[:], ubirch.Signed, false) // insert hash into the UPP
+	upp, err := sim.Sign(key_name, pRendered, ubirch.Signed, true) // use automatic hashing
+	if err != nil {
+		log.Fatalf("ERROR signing failed: %v", err)
+	}
+	log.Printf("UPP [hex]: %s", hex.EncodeToString(upp))
+
+	// try to verify the UPP locally
+	ok, err := sim.Verify(key_name, upp, ubirch.Signed)
+	if err != nil || !ok {
+		log.Fatalf("ERROR local verification failed: %v", err)
+	}
+	log.Printf("verified: %v", ok)
+
+	// send UPP to the UBIRCH backend
+	send(upp, uid, conf)
+
+	for i := 0; i < 10; i++ {
+		p := Payload{int(time.Now().Unix()), uid.String(), int(rand.Uint32())}
 		pRendered, err := json.Marshal(p)
 		if err != nil {
-			log.Printf("can't render payload as json: %v", err)
-		} else {
-			log.Print(string(pRendered))
-
-			// create A hash from the payload to be inserted into the UPP
-			digest := sha256.Sum256(pRendered)
-			log.Printf("payload hash: base64 %s", base64.StdEncoding.EncodeToString(digest[:]))
-			log.Printf("payload hash: hex    %s", hex.EncodeToString(digest[:]))
-
-			// create a chained UPP message and send it to the ubirch backend
-			//upp, err := sim.Sign(name, digest[:], ubirch.Chained, false)
-			upp, err := sim.Sign(key_name, pRendered, ubirch.Chained, true) // use automatic hashing
-			if err != nil {
-				log.Printf("signing failed: %v", err)
-			} else {
-				log.Printf("upp: %s", hex.EncodeToString(upp))
-
-				statusCode, respBody, err := post(upp, conf.Niomon, map[string]string{
-					"X-Ubirch-Hardware-Id": uid.String(),
-					"X-Ubirch-Auth-Type":   "ubirch",
-					"X-Ubirch-Credential":  base64.StdEncoding.EncodeToString([]byte(conf.Password)),
-				})
-				if err != nil {
-					log.Printf("unable to read response body: %v", err)
-				} else if statusCode != http.StatusOK {
-					log.Printf("request to %s failed with status code %d: %s", conf.Niomon, statusCode, hex.EncodeToString(respBody))
-				} else {
-					log.Printf("response: %s", hex.EncodeToString(respBody))
-				}
-			}
+			log.Fatalf("can't render payload as json: %v", err)
 		}
+		log.Print(string(pRendered))
+
+		// create a hash from the payload
+		digest := sha256.Sum256(pRendered)
+		log.Printf("data hash [base64]: %s", base64.StdEncoding.EncodeToString(digest[:]))
+
+		// create a signed UPP message
+		//upp, err := sim.Sign(name, digest[:], ubirch.Chained, false)
+		upp, err := sim.Sign(key_name, pRendered, ubirch.Chained, true) // use automatic hashing
+		if err != nil {
+			log.Fatalf("ERROR signing failed: %v", err)
+		}
+		log.Printf("UPP [hex]: %s", hex.EncodeToString(upp))
+
+		// try to verify the UPP locally
+		ok, err := sim.Verify(key_name, upp, ubirch.Chained)
+		if err != nil || !ok {
+			log.Fatalf("ERROR local verification failed: %v", err)
+		}
+		log.Printf("verified: %v", ok)
+
+		// send UPP to the UBIRCH backend
+		send(upp, uid, conf)
+	}
+}
+
+func getPIN(imsi string, conf Config) (string, error) {
+	if conf.Password == "" {
+		return "", fmt.Errorf("no auth token for backend set in config")
+	}
+	// bootstrap SIM identity and retrieve PIN
+	return bootstrap(imsi, conf.BootstrapService, conf.Password)
+}
+
+// send a key registration message to the UBIRCH backend
+func registerKey(cert []byte, conf Config) {
+	if conf.Password == "" {
+		return
+	}
+
+	statusCode, respBody, err := post(cert, conf.KeyService, map[string]string{"Content-Type": "application/json"})
+	if err != nil {
+		log.Fatalf("ERROR: sending key registration failed: %v", err)
+	}
+	if statusCode != http.StatusOK {
+		log.Fatalf("ERROR: request to %s failed with status code %d: %s", conf.KeyService, statusCode, respBody)
+	}
+	log.Printf("key registration successful. response: %s", string(respBody))
+}
+
+// send UPP to the UBIRCH backend
+func send(upp []byte, uid uuid.UUID, conf Config) {
+	if conf.Password == "" {
+		return
+	}
+
+	statusCode, respBody, err := post(upp, conf.Niomon, map[string]string{
+		"X-Ubirch-Hardware-Id": uid.String(),
+		"X-Ubirch-Auth-Type":   "ubirch",
+		"X-Ubirch-Credential":  base64.StdEncoding.EncodeToString([]byte(conf.Password)),
+	})
+	if err != nil {
+		log.Printf("ERROR: sending UPP failed: %v", err)
+	} else if statusCode != http.StatusOK {
+		log.Printf("ERROR: request to %s failed with status code %d: %s", conf.Niomon, statusCode, hex.EncodeToString(respBody))
+	} else {
+		log.Printf("UPP successfully sent. response: %s", hex.EncodeToString(respBody))
 	}
 }

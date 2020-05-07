@@ -2,28 +2,49 @@
 
 ```
 cd main
-go run main.go /dev/ttyUSB0 115200
+go run github.com/ubirch/ubirch-protocol-sim/go/main /dev/ttyUSB0 115200
 ``` 
 
-Running requires a configuration file: `main/config.json` which must contain at least the `"password"`-key. This is the
- ubirch API auth token from the 
+A configuration file `main/config.json` is required. To be able to communicate with the UBIRCH backend, it 
+must contain the `"password"`-key which is the UBIRCH API auth token and can be acquired at the 
+[UBIRCH web UI](https://console.demo.ubirch.com) ([see](#how-to-claim-your-sim-card-identity-imsi)) and 
+copy the value of the **"password"** from the `apiConfig` as your auth token.
+
+The default UBIRCH backend environment is `"prod"`, but may be overwritten with the `"env"`-key.
+For testing, set it to `"demo"`.
+
 ```json
 {
-  "password": "<ubirch-api-token>"
+    "password": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxx",
+    "env": "demo"
 }
 ```
 
-There are default values for all service URLs. The default ubirch environment stage is `"prod"`, but can be overwritten
- with the `"env"`-key. Extended debug output can be enabled with the `"debug"`-key.
+If you wish to test the SIM functionality without actually sending ubirch protocol packages (*UPPs*)
+to the UBIRCH backend at all, simply don't set the `"password"`-key in the config file and the script will skip
+backend communication.
+
+The PIN to unlock the SIM card is normally acquired through a bootstrapping with the UBIRCH backend,
+but bootstrapping can be omitted by setting the `"pin"`-key.
+
+The `"debug"`-key additionally enables extended debug output.
+
 ```json
 {
-  "password": "<ubirch-api-token>",
-  "env": "dev",
-  "debug": true
+    "pin": "1234",
+    "debug": true
 }
 ```
 > To test this implementation with a Pycom Gpy, install the [uart proxy](proxy) and then run main.go
 >  with the corresponding connection to the USB serial interface:
+
+#### How to claim your SIM card identity (IMSI)
+ - Go to [UBIRCH web UI](https://console.demo.ubirch.com)
+ - Login or register if you don't have an account yet.
+ - Go to **Things** (in the menu on the left) and click on `+ ADD NEW DEVICE`.
+ - Enter the IMSI of your SIM card to the **ID** field, add a description and click on `register`.
+ - Click on your device (IMSI) in the overview and take note of the the `apiConfig`.
+ - The value of the 
 
 Example output:
 ```
