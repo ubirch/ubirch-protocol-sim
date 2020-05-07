@@ -372,7 +372,7 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 		return nil, err
 	}
 
-	data, _, err := p.response(code)
+	data, code, err := p.response(code)
 	if err != nil {
 		return nil, err
 	}
