@@ -11,15 +11,15 @@ import (
 // configuration file structure
 type Config struct {
 	Password         string `json:"password"`   // password for the ubirch backend	(mandatory)
+	Env              string `json:"env"`        // ubirch environment				(optional)
 	KeyService       string `json:"keyService"` // key service URL					(optional)
 	Niomon           string `json:"niomon"`     // authentication service URL		(optional)
 	DataService      string `json:"data"`       // data service URL					(optional)
 	VerifyService    string `json:"verify"`     // verification service URL			(optional)
 	BootstrapService string `json:"boot"`       // bootstrap service URL			(optional)
-	Env              string `json:"env"`        // ubirch environment				(optional)
 	Debug            bool   `json:"debug"`      // enable extended debug output		(optional)
-	Uuid             string `json:"uuid"`       // the device uuid 					(this is only used when storing a new key pair to the SIM card)
-	Pin              string `json:"pin"`        // the SIM pin						(this is only used if bootstrapping is not possible)
+	Uuid             string `json:"uuid"`       // the device uuid 					(set UUID here if you want to generate a new key pair on the SIM card)
+	Pin              string `json:"pin"`        // the SIM pin						(set PIN here if bootstrapping is not possible)
 }
 
 // load the config file
@@ -34,10 +34,9 @@ func (c *Config) load(fn string) error {
 		log.Fatalf("unable to read configuration %v", err)
 		return err
 	}
-	log.Printf("configuration found")
 
 	if c.Password == "" {
-		return fmt.Errorf("no password in config")
+		log.Printf("password not set in config. will skip backend communication.")
 	}
 
 	if c.Env == "" {
