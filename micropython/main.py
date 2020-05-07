@@ -112,11 +112,11 @@ except Exception as e:
 # todo this will be replaced by the X.509 certificate from the SIM card
 print("-- creating self-signed certificate for identity {}".format(device_uuid))
 csr = get_certificate(device_name, device_uuid, ubirch)
-print("certificate: {}\n".format(csr.decode()))
+print("cert: {}\n".format(csr.decode()))
 
 # register public key at ubirch key service
 try:
-    register_key(KEY_SERVER, cfg["password"], csr)
+    print("resp: {}\n".format(register_key(KEY_SERVER, cfg["password"], csr).decode()))
 except Exception as e:
     lte_shutdown(lte)
     error_handler.log(e, LED_ORANGE, reset=True)

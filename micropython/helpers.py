@@ -93,11 +93,10 @@ def lte_setup(lte: LTE, connect: bool, apn: str or None):
     print(">> initializing LTE")
     lte.init()
     if connect:
+        if not lte.isattached():
+            nb_iot_attach(lte, apn)
         if not lte.isconnected():
-            if not lte.isattached():
-                nb_iot_attach(lte, apn)
-            if not lte.isconnected():
-                nb_iot_connect(lte)
+            nb_iot_connect(lte)
 
 
 def lte_shutdown(lte: LTE, detach=True):
