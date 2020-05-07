@@ -135,18 +135,7 @@ func main() {
 	}
 	log.Printf("retrieved certificate from SIM: %x", simCert)
 
-	//// register public key using certificate from SIM todo not implemented in backend yet
-	//statusCode, respBody, err := post(simCert, conf.KeyService, map[string]string{"Content-Type": "application/json"})
-	//if err != nil {
-	//	log.Printf("unable to read response body: %v", err)
-	//} else if statusCode != http.StatusOK {
-	//	log.Printf("request to %s failed with status code %d: %s", conf.KeyService, statusCode, respBody)
-	//} else {
-	//	log.Printf("response: %s", string(respBody))
-	//}
-
-	// get the public key (see next part, registering)
-	// todo this will be replaced by the X.509 cert from SIM card
+	// get the public key from SIM card
 	key, err := sim.GetKey(key_name)
 	if err != nil {
 		log.Fatalf("no key entry found for %s: %v", key_name, err)
@@ -161,13 +150,15 @@ func main() {
 	}
 	log.Printf("UUID: %s", uid.String())
 
-	// register public key at the UBIRCH backend
+	// generate a self signed certificate for the public key
+	// todo this will be replaced by the X.509 cert from SIM card
 	cert, err := getSignedCertificate(&sim, key_name, uid)
 	if err != nil {
 		log.Fatalf("could not generate key certificate: %v", err)
 	}
 	log.Printf("certificate: %s", string(cert))
 
+	// register public key at the UBIRCH backend
 	registerKey(cert, conf)
 
 	// send a signed message
