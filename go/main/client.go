@@ -98,7 +98,7 @@ func post(upp []byte, url string, headers map[string]string) (int, []byte, error
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, nil, fmt.Errorf("sending post request failed: %v", err)
+		return 0, nil, fmt.Errorf("post request failed: %v", err)
 	}
 	//noinspection GoUnhandledErrorResult
 	defer resp.Body.Close()
