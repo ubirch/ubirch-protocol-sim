@@ -7,6 +7,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -186,6 +187,9 @@ func (p *Protocol) response(code uint16) (string, uint16, error) {
 		l = code & 0xff
 		data += r
 	}
+	if data == "" {
+		return data, code, fmt.Errorf("no response data")
+	}
 	return data, code, nil
 }
 
@@ -228,17 +232,24 @@ func (p *Protocol) authenticate(pin string) error {
 
 // Initialize the SIM card application by authenticating with the SIM with the given pin.
 func (p *Protocol) Init(pin string) error {
-	err := p.selectApplet()
-	if err != nil {
-		return err
+	// sometimes the modem is not ready yet, so we try again, if it fails
+	for i := 0; i < 3; i++ {
+		err := p.selectApplet()
+		if err != nil {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		break
 	}
-
 	return p.authenticate(pin)
 }
 
 // Delete all SSEntries on the SIM card, effectively erasing all stored keys.
 // This may not work, depending on the application settings.
 func (p *Protocol) DeleteAll() error {
+	if p.Debug {
+		log.Println("deleting ALL SS entries")
+	}
 	_, code, err := p.execute(stkAppDeleteAll)
 	if err != nil {
 		return err
@@ -266,6 +277,9 @@ func (p *Protocol) GetIMSI() (string, error) {
 	const IMSI_LEN = 15
 	var imsi string
 	var err error
+	if p.Debug {
+		log.Println("get IMSI")
+	}
 	// sometimes the modem is not ready to retrieve the IMSI yet, so we try again, if it fails
 	for i := 0; i < 3; i++ {
 		response, err := p.Send("AT+CIMI")
@@ -273,11 +287,11 @@ func (p *Protocol) GetIMSI() (string, error) {
 			continue
 		}
 		if response[0] == "ERROR" {
-			err = fmt.Errorf("no IMSI available")
+			err = fmt.Errorf("failed to retrieve IMSI")
 			continue
 		}
 		if len(response[0]) != IMSI_LEN {
-			err = fmt.Errorf("invalid IMSI length: %d", response[0])
+			err = fmt.Errorf("invalid IMSI: %d", response[0])
 			continue
 		}
 		imsi = response[0]
@@ -335,6 +349,7 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	_, code, err = p.execute(stkAppKeyGet, len(args)/2, args)
 	if err != nil {
 		return nil, err
@@ -343,6 +358,9 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 	data, _, err := p.response(code)
 	if err != nil {
 		return nil, err
+	}
+	if code != ApduOk {
+		return nil, fmt.Errorf("APDU error: %x, getting key failed", code)
 	}
 
 	tags, err := p.decode(data)
@@ -388,7 +406,7 @@ func (p *Protocol) GetUUID(name string) (uuid.UUID, error) {
 	return uid, nil
 }
 
-// Get the public key for a given UUID from the SIM storage.
+// [WIP] Get the public key for a given UUID from the SIM storage.
 func (p *Protocol) GetVerificationKey(uid uuid.UUID) ([]byte, error) {
 	uidBytes, err := uid.MarshalBinary()
 	if err != nil {
@@ -556,7 +574,10 @@ func (p *Protocol) UpdateCertificate(entryID string, newCert []byte) error {
 	if err != nil {
 		return err
 	}
-	_, code, _ = p.response(code)
+	_, code, err = p.response(code)
+	if err != nil {
+		return err
+	}
 	if code != ApduOk {
 		log.Printf("selecting SS entry (%s) failed", entryID)
 		return fmt.Errorf("APDU error: %x", code)
@@ -591,7 +612,10 @@ func (p *Protocol) GetCertificate(entryID string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, code, _ = p.response(code)
+	_, code, err = p.response(code)
+	if err != nil {
+		return nil, err
+	}
 	if code != ApduOk {
 		log.Printf("selecting SS entry (%s) failed", entryID)
 		return nil, fmt.Errorf("APDU error: %x", code)
@@ -667,9 +691,12 @@ func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign
 		data = data[end:]
 	}
 
-	data, _, err = p.response(code)
+	data, code, err = p.response(code)
 	if err != nil {
 		return nil, err
+	}
+	if code != ApduOk {
+		return nil, fmt.Errorf("APDU error: %x, retrieving signed data from SIM failed", code)
 	}
 	return hex.DecodeString(data)
 }
