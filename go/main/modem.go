@@ -16,7 +16,7 @@ type SimSerialPort struct {
 
 func (sp *SimSerialPort) Send(cmd string) ([]string, error) {
 	if sp.Debug {
-		log.Printf("+++ %s (%d)", cmd, len(cmd))
+		log.Printf("+++ %s", cmd)
 	}
 	_, err := sp.Write([]byte(cmd + "\r\n"))
 	if err != nil {
@@ -59,7 +59,7 @@ func (sp *SimSerialPort) Send(cmd string) ([]string, error) {
 	case response := <-matcher:
 		if sp.Debug {
 			for _, l := range response {
-				log.Printf("--- %s (%d)", l, len(l))
+				log.Printf("--- %s", l)
 			}
 		}
 		return response, nil
