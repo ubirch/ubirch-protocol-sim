@@ -57,7 +57,7 @@ func getSignedCertificate(p *ubirch.Protocol, name string, uid uuid.UUID) ([]byt
 		uid.String(),
 		pubKeyBase64,
 		pubKeyBase64,
-		now.Add(24 * 365 * time.Hour).Format(timeFormat),
+		now.Add(10 * 365 * 24 * time.Hour).Format(timeFormat), // valid for 10 years
 		now.Format(timeFormat),
 	}
 
