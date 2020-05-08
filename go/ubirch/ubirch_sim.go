@@ -290,16 +290,13 @@ func (p *Protocol) GetIMSI() (string, error) {
 	var err error
 	// sometimes the modem is not ready to retrieve the IMSI yet, so we try again, if it fails
 	for i := 0; i < 3; i++ {
-		response, err := p.Send("AT+CIMI")
+		var response []string
+		response, err = p.Send("AT+CIMI")
 		if err != nil {
 			continue
 		}
-		if response[0] == "ERROR" {
-			err = fmt.Errorf("failed to retrieve IMSI")
-			continue
-		}
 		if len(response[0]) != IMSI_LEN {
-			err = fmt.Errorf("invalid IMSI: %d", response[0])
+			err = fmt.Errorf("getting IMSI failed: got %s", response[0])
 			continue
 		}
 		imsi = response[0]
