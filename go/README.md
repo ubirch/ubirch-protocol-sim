@@ -7,7 +7,8 @@ go run github.com/ubirch/ubirch-protocol-sim/go/main /dev/ttyUSB0 115200
 
 A configuration file `main/config.json` is required. To be able to communicate with the UBIRCH backend, it 
 must contain the `"password"`-key which is the UBIRCH API auth token and can be acquired at the 
-[UBIRCH web UI](https://console.demo.ubirch.com) ([see](#how-to-claim-your-sim-card-identity-imsi)) and 
+[UBIRCH web UI](https://console.demo.ubirch.com).
+ ([See here how to claim your IMSI](#how-to-claim-your-sim-card-identity-imsi)) and 
 copy the value of the **"password"** from the `apiConfig` as your auth token.
 
 The default UBIRCH backend environment is `"prod"`, but may be overwritten with the `"env"`-key.
