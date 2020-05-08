@@ -151,7 +151,7 @@ func main() {
 	log.Printf("retrieved certificate from SIM: %x", cert)
 
 	// register public key at the UBIRCH backend
-	//registerKey(cert, conf) // not implemented yet
+	// TODO registerKey(cert, conf) // not implemented in backend yet
 	registerKeyLegacy(&sim, key_name, uid, conf)
 
 	// send a signed message
@@ -191,6 +191,7 @@ func main() {
 	send(upp, uid, conf)
 
 	for i := 0; i < 10; i++ {
+		log.Printf(" - - - - - - - - %d. chained UPP: - - - - - - - - ", i+1)
 		p := Payload{int(time.Now().Unix()), uid.String(), int(rand.Uint32())}
 		pRendered, err := json.Marshal(p)
 		if err != nil {
