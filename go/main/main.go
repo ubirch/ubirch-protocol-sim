@@ -190,7 +190,7 @@ func main() {
 	// send UPP to the UBIRCH backend
 	send(upp, uid, conf)
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 3; i++ {
 		log.Printf(" - - - - - - - - %d. chained UPP: - - - - - - - - ", i+1)
 		p := Payload{int(time.Now().Unix()), uid.String(), int(rand.Uint32())}
 		pRendered, err := json.Marshal(p)
