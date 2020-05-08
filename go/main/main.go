@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
-	"go.bug.st/serial.v1"
+	"go.bug.st/serial"
 	"log"
 	"math/rand"
 	"net/http"

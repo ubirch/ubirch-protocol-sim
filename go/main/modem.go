@@ -2,7 +2,7 @@ package main
 
 import (
 	"errors"
-	"go.bug.st/serial.v1"
+	"go.bug.st/serial"
 	"log"
 	"regexp"
 	"strings"
