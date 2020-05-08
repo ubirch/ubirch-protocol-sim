@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
-	"go.bug.st/serial.v1"
+	"go.bug.st/serial"
 	"log"
 	"math/rand"
 	"net/http"
@@ -206,7 +206,8 @@ func main() {
 	// send UPP to the UBIRCH backend
 	send(upp, uid, conf)
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 100; i++ {
+		log.Printf("### %v", i)
 		p := Payload{int(time.Now().Unix()), uid.String(), int(rand.Uint32())}
 		pRendered, err := json.Marshal(p)
 		if err != nil {
