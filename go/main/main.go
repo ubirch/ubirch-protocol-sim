@@ -79,8 +79,8 @@ func main() {
 		log.Fatalf("initialization failed: %v", err)
 	}
 
-	cert_name := "ucrt"
 	key_name := "ukey"
+	cert_name := "ucrt"
 
 	//// generate a key pair
 	//// FIXME overwrites existing keys
@@ -96,7 +96,22 @@ func main() {
 	//if err != nil {
 	//	log.Printf("generating key \"%s\" failed: %v", key_name, err)
 	//}
-	//
+
+	// get the public key from SIM card
+	key, err := sim.GetKey(key_name)
+	if err != nil {
+		log.Fatalf("getting key %s failed: %v", key_name, err)
+	}
+	log.Printf("public key [base64]: %s", base64.StdEncoding.EncodeToString(key))
+	log.Printf("public key [hex]:    %s", hex.EncodeToString(key))
+
+	// get the UUID corresponding to the key
+	uid, err := sim.GetUUID(key_name)
+	if err != nil {
+		log.Fatalf("getting UUID from entry \"%s\" failed: %s", key_name, err)
+	}
+	log.Printf("UUID: %s", uid.String())
+
 	//// generate CSR
 	//csr, err := sim.GenerateCSR(key_name, uid)
 	//if err != nil {
@@ -129,37 +144,15 @@ func main() {
 	//}
 
 	// get X.509 certificate from SIM card
-	simCert, err := sim.GetCertificate(cert_name)
+	cert, err := sim.GetCertificate(cert_name)
 	if err != nil {
 		log.Fatalf("retrieving certificate from SIM failed. %s", err)
 	}
-	log.Printf("retrieved certificate from SIM: %x", simCert)
-
-	// get the public key from SIM card
-	key, err := sim.GetKey(key_name)
-	if err != nil {
-		log.Fatalf("no key entry found for %s: %v", key_name, err)
-	}
-	log.Printf("public key: base64 %s", base64.StdEncoding.EncodeToString(key))
-	log.Printf("public key: hex    %s", hex.EncodeToString(key))
-
-	// get the UUID from SIM card
-	uid, err := sim.GetUUID(key_name)
-	if err != nil {
-		log.Fatalf("getting UUID from certificate failed. %s", err)
-	}
-	log.Printf("UUID: %s", uid.String())
-
-	// generate a self signed certificate for the public key
-	// todo this will be replaced by the X.509 cert from SIM card
-	cert, err := getSignedCertificate(&sim, key_name, uid)
-	if err != nil {
-		log.Fatalf("could not generate key certificate: %v", err)
-	}
-	log.Printf("certificate: %s", string(cert))
+	log.Printf("retrieved certificate from SIM: %x", cert)
 
 	// register public key at the UBIRCH backend
-	registerKey(cert, conf)
+	//registerKey(cert, conf) // not implemented yet
+	registerKeyLegacy(&sim, key_name, uid, conf)
 
 	// send a signed message
 	type Payload struct {
@@ -237,11 +230,18 @@ func getPIN(imsi string, conf Config) (string, error) {
 	return bootstrap(imsi, conf.BootstrapService, conf.Password)
 }
 
-// send a key registration message to the UBIRCH backend
-func registerKey(cert []byte, conf Config) {
+// send a self signed JSON formatted key registration message to the UBIRCH backend
+func registerKeyLegacy(p *ubirch.Protocol, name string, uid uuid.UUID, conf Config) {
 	if conf.Password == "" {
 		return
 	}
+	// todo this will be replaced by the X.509 cert from SIM card
+	// generate a self signed certificate for the public key
+	cert, err := getSignedCertificate(p, name, uid)
+	if err != nil {
+		log.Fatalf("could not generate key certificate: %v", err)
+	}
+	log.Printf("certificate: %s", string(cert))
 
 	statusCode, respBody, err := post(cert, conf.KeyService, map[string]string{"Content-Type": "application/json"})
 	if err != nil {
@@ -251,6 +251,11 @@ func registerKey(cert []byte, conf Config) {
 		log.Fatalf("ERROR: request to %s failed with status code %d: %s", conf.KeyService, statusCode, respBody)
 	}
 	log.Printf("key registration successful. response: %s", string(respBody))
+}
+
+// send a X.509 public key certificate to the UBIRCH backend
+func registerKey(cert []byte, conf Config) error {
+	return fmt.Errorf("not implemented yet")
 }
 
 // send UPP to the UBIRCH backend
