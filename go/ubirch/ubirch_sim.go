@@ -238,7 +238,7 @@ func (p *Protocol) Init(pin string) error {
 	for i := 0; i < 3; i++ {
 		err = p.selectApplet()
 		if err != nil {
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(10 * time.Millisecond)
 			continue
 		}
 		break
@@ -290,16 +290,14 @@ func (p *Protocol) GetIMSI() (string, error) {
 	var err error
 	// sometimes the modem is not ready to retrieve the IMSI yet, so we try again, if it fails
 	for i := 0; i < 3; i++ {
-		response, err := p.Send("AT+CIMI")
+		time.Sleep(10 * time.Millisecond)
+		var response []string
+		response, err = p.Send("AT+CIMI")
 		if err != nil {
 			continue
 		}
-		if response[0] == "ERROR" {
-			err = fmt.Errorf("failed to retrieve IMSI")
-			continue
-		}
-		if len(response[0]) != IMSI_LEN {
-			err = fmt.Errorf("invalid IMSI: %d", response[0])
+		if len(response[0]) != IMSI_LEN || response[1] != "OK" {
+			err = fmt.Errorf(response[0])
 			continue
 		}
 		imsi = response[0]
@@ -339,7 +337,7 @@ func (p *Protocol) PutKey(name string, uid uuid.UUID, pubKey []byte) error {
 	return nil
 }
 
-// Get the public key for a given name from the SIM storage.
+// Get the public key with a given entry ID from the SIM storage.
 // Returns a byte array with the raw bytes of the public key.
 func (p *Protocol) GetKey(name string) ([]byte, error) {
 	if p.Debug {
@@ -414,6 +412,8 @@ func (p *Protocol) GetUUID(name string) (uuid.UUID, error) {
 	if code != ApduOk {
 		return uuid.Nil, fmt.Errorf("APDU error: %x, selecting SS entry (%s) failed", code, name)
 	}
+
+	// get UUID from entry title
 	tags, err := p.decode(data)
 	if err != nil {
 		return uuid.Nil, err
@@ -647,7 +647,7 @@ func (p *Protocol) UpdateCertificate(entryID string, newCert []byte) error {
 // Returns a byte array with the raw bytes of the certificate.
 func (p *Protocol) GetCertificate(entryID string) ([]byte, error) {
 	if p.Debug {
-		log.Printf(">> get certificate for \"%s\"", entryID)
+		log.Printf(">> get certificate \"%s\"", entryID)
 	}
 	// select SS entry
 	_, code, err := p.execute(stkAppSsEntrySelect, len(entryID), hex.EncodeToString([]byte(entryID)))
@@ -700,7 +700,7 @@ func (p *Protocol) GetCertificate(entryID string) ([]byte, error) {
 // the raw signature in case protocol is 0.
 func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign bool) ([]byte, error) {
 	if p.Debug {
-		log.Printf(">> sign with key \"%s\"", name)
+		log.Printf(">> sign with key \"_%s\"", name)
 	}
 	args, err := p.encode([]Tag{
 		{0xc4, []byte("_" + name)}, // Entry ID of signing key
