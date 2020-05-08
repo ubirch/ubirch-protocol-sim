@@ -26,10 +26,14 @@ type Tag struct {
 	Data []byte
 }
 
+// ProtocolType definition
+type ProtocolType byte
+
 //noinspection GoUnusedConst
 const (
-	Signed  = 0x22
-	Chained = 0x23
+	Plain   ProtocolType = 0x00 // Plain signature
+	Signed  ProtocolType = 0x22 // Signed UBIRCH protocol package
+	Chained ProtocolType = 0x23 // Chained UBIRCH protocol package
 
 	// APDU response codes
 	ApduOk       = 0x9000
@@ -174,12 +178,15 @@ func (p *Protocol) execute(format string, v ...interface{}) (string, uint16, err
 
 // retrieve an extended response by executing the get response APDU command
 func (p *Protocol) response(code uint16) (string, uint16, error) {
-	c := code >> 8   // first byte -> response code: 0x61 or 0x63 indicate that there is more data available
+	c := code >> 8   // first byte -> response code: 0x61 indicate that there is more data available
 	l := code & 0xff // second byte -> length of available data
 	data := ""
-	for c == 0x61 || c == 0x63 { // check if more data available
+	for c == 0x61 { // check if more data available
 		r := ""
-		var err error                               // avoid shadowing of 'code'
+		var err error // avoid shadowing of 'code'
+		if p.Debug {
+			log.Printf(">> get response")
+		}
 		r, code, err = p.execute(stkGetResponse, l) // request available data
 		if err != nil {
 			return "", 0, err
@@ -698,7 +705,7 @@ func (p *Protocol) GetCertificate(entryID string) ([]byte, error) {
 // pure value data is executed.
 // The method returns the signed data in the form of a ubirch-protocol packet (UPP) or
 // the raw signature in case protocol is 0.
-func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign bool) ([]byte, error) {
+func (p *Protocol) Sign(name string, value []byte, protocol ProtocolType, hashBeforeSign bool) ([]byte, error) {
 	if p.Debug {
 		log.Printf(">> sign with key \"_%s\"", name)
 	}
@@ -710,6 +717,9 @@ func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign
 		return nil, err
 	}
 
+	if p.Debug {
+		log.Printf(">> sign init")
+	}
 	if hashBeforeSign {
 		protocol |= 0x40 // set flag for automatic hashing
 	}
@@ -729,6 +739,10 @@ func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign
 			end = len(data)
 		}
 		chunk := data[:end]
+
+		if p.Debug {
+			log.Printf(">> sign update/final")
+		}
 		_, code, err = p.execute(stkAppSignFinal, finalBit, len(chunk)/2, chunk)
 		if err != nil {
 			return nil, fmt.Errorf("sign update/final failed: %v", err)
@@ -754,7 +768,7 @@ func (p *Protocol) Sign(name string, value []byte, protocol byte, hashBeforeSign
 // packet (UPP). If the protocol parameter is 0 a normal verify operation on the
 // pure value data is executed.
 // Returns true or false.
-func (p *Protocol) Verify(name string, value []byte, protocol byte) (bool, error) {
+func (p *Protocol) Verify(name string, value []byte, protocol ProtocolType) (bool, error) {
 	if p.Debug {
 		log.Printf(">> verify with key \"%s\"", name)
 	}

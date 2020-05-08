@@ -7,12 +7,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"go.bug.st/serial"
 	"log"
 	"math/big"
 	"testing"
 
 	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
-	"go.bug.st/serial.v1"
 )
 
 const ( //Global SIMProxy test settings
@@ -137,7 +137,7 @@ func TestSIMProxySign(t *testing.T) {
 	var tests = []struct {
 		testName       string
 		inputData      string
-		protocol       byte
+		protocol       ubirch.ProtocolType
 		hashBeforeSign bool
 		shouldFail     bool
 	}{
