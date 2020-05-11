@@ -18,7 +18,7 @@ import (
 const ( //Global SIMProxy test settings
 	SIMProxySerialPort    = "/dev/ttyACM0"
 	SIMProxyBaudrate      = 115200
-	SIMProxyName          = "Q"
+	SIMProxyName          = "ukey"
 	SIMProxySerialDebug   = false
 	SIMProxyProtocolDebug = false
 )
