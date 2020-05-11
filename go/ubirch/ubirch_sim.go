@@ -1,5 +1,7 @@
 package ubirch
 
+// [1]: "../../SIGNiT Customer Manual v4.pdf"
+
 import (
 	"encoding/hex"
 	"errors"
@@ -14,6 +16,7 @@ import (
 
 type SimInterface interface {
 	Send(cmd string) ([]string, error)
+	Close() error
 }
 
 type Protocol struct {

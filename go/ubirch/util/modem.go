@@ -1,4 +1,4 @@
-package main
+package util
 
 import (
 	"errors"
@@ -99,4 +99,10 @@ func (sp *SimSerialPort) Init() {
 			}
 		}
 	}
+}
+
+// Close the serial port
+func (sp *SimSerialPort) Close() error {
+	err := sp.Port.Close()
+	return err
 }
