@@ -1,3 +1,4 @@
 log_serial*txt
 config.json
+/ubirch/test_config.json
 /main/test_config.json

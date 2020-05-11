@@ -10,4 +10,6 @@ require (
 	golang.org/x/sys v0.0.0-20200302150141-5c8b2ff67527 // indirect
 )
 
-replace github.com/ubirch/ubirch-protocol-sim/go/ubirch => ../ubirch
+replace (
+    github.com/ubirch/ubirch-protocol-sim/go/ubirch => ../ubirch
+)

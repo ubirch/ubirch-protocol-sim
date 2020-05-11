@@ -7,12 +7,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
+	"github.com/ubirch/ubirch-protocol-sim/go/ubirch/util"
 	"go.bug.st/serial"
 	"log"
 	"math/big"
 	"testing"
-
-	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
 )
 
 const ( //Global SIMProxy test settings
@@ -67,14 +67,14 @@ func openAndInitSIMProxy(t *testing.T, port string, baud int) *ubirch.Protocol {
 		t.Fatalf("serial port open failed: %v\n", err)
 		return nil
 	}
-	serialPort := SimSerialPort{s, SIMProxySerialDebug}
+	serialPort := util.SimSerialPort{Port: s, Debug: SIMProxySerialDebug}
 	serialPort.Init()
 
 	//noinspection GoUnhandledErrorResult
 	//defer serialPort.Close()
 
-	conf := Config{}
-	err = conf.load("test_config.json")
+	conf := util.Config{}
+	err = conf.Load("test_config.json")
 	if err != nil {
 		t.Fatalf("loading configuration failed: %v", err)
 		return nil
@@ -91,7 +91,7 @@ func openAndInitSIMProxy(t *testing.T, port string, baud int) *ubirch.Protocol {
 }
 
 func closeSIMProxy(t *testing.T, sim *ubirch.Protocol) {
-	castSIM, ok := sim.SimInterface.(*SimSerialPort)
+	castSIM, ok := sim.SimInterface.(*util.SimSerialPort)
 	if !ok {
 		t.Fatal("Could not cast SIM interface to (*SimSerialPort) for closing.")
 	}
