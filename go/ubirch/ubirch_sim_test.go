@@ -5,9 +5,77 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/ubirch/ubirch-protocol-sim/go/ubirch/util"
+	"go.bug.st/serial"
 	"log"
 	"testing"
 )
+
+const ( //Global SIMProxy test settings
+	SIMProxySerialPort    = "/dev/ttyACM0"
+	SIMProxyBaudrate      = 115200
+	SIMProxyName          = "ukey"
+	SIMProxySerialDebug   = false
+	SIMProxyProtocolDebug = false
+)
+
+// commonSimInterface is a helper function to initialize th serial connection
+// to the SIM card, currently within a GPy.
+// It returns a the Protocol and 'nil' error, if successful
+func commonSimInterface(debug bool) (Protocol, error) {
+	mode := &serial.Mode{
+		BaudRate: SIMProxyBaudrate,
+		Parity:   serial.NoParity,
+		DataBits: 8,
+		StopBits: serial.OneStopBit,
+	}
+	s, err := serial.Open(SIMProxySerialPort, mode)
+	if err != nil {
+		return Protocol{}, err
+	}
+	serialPort := util.SimSerialPort{Port: s, Debug: true}
+	serialPort.Init()
+
+	return Protocol{SimInterface: &serialPort, Debug: debug}, err
+}
+
+// Load the configuration for the test environment
+func commonLoadConfig() (util.Config, error) {
+	conf := util.Config{}
+	err := conf.Load("test_config.json")
+	return conf, err
+}
+
+func TestSim_selectApplet(t *testing.T) {
+	asserter := assert.New(t)
+	requirer := require.New(t)
+
+	conf, err := commonLoadConfig()
+	requirer.NoErrorf(err, "failed to load configuration")
+	sim, err := commonSimInterface(conf.Debug)
+	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
+	defer sim.Close()
+
+	// test the select Application APDU
+	asserter.NoErrorf(sim.selectApplet(), "failed to select the applet")
+}
+
+// *WARNING* careful with this function, it can block the SIM card
+func TestSim_VerifyPin(t *testing.T) {
+	asserter := assert.New(t)
+	requirer := require.New(t)
+
+	conf, err := commonLoadConfig()
+	requirer.NoErrorf(err, "failed to load configuration")
+	sim, err := commonSimInterface(conf.Debug)
+	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
+	defer sim.Close()
+
+	// test the Verify PIN APDU
+	asserter.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+}
 
 // assert functions
 func assertTagsEqual(t *testing.T, expected []Tag, actual []Tag) {
@@ -108,6 +176,10 @@ func (sp MockSimSerialPort) Send(cmd string) ([]string, error) {
 	return sp.write(cmd)
 }
 
+func (sp MockSimSerialPort) Close() error {
+	return nil
+}
+
 func TestExecuteFailSend(t *testing.T) {
 	writeFails := func(s string) ([]string, error) {
 		return nil, errors.New("write failed")
@@ -179,7 +251,7 @@ func TestExecuteSimpleOkWithData(t *testing.T) {
 	}
 }
 
-func TestProtocol_Init(t *testing.T) {
+func TestProtocol_Init_Mock(t *testing.T) {
 	sim := Protocol{MockSimSerialPort{func(s string) ([]string, error) {
 		return []string{"+CSIM: 4,9000", "OK"}, nil
 	}}, true}

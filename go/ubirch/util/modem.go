@@ -1,4 +1,4 @@
-package main
+package util
 
 import (
 	"errors"
@@ -100,4 +100,10 @@ func (sp *SimSerialPort) Init() {
 		}
 		time.Sleep(time.Second)
 	}
+}
+
+// Close the serial port
+func (sp *SimSerialPort) Close() error {
+	err := sp.Port.Close()
+	return err
 }

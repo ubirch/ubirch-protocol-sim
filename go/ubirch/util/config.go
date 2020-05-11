@@ -1,4 +1,4 @@
-package main
+package util
 
 import (
 	"encoding/json"
@@ -22,8 +22,8 @@ type Config struct {
 	Pin              string `json:"pin"`        // the SIM pin						(set PIN here if bootstrapping is not possible)
 }
 
-// load the config file
-func (c *Config) load(fn string) error {
+// Load the config file
+func (c *Config) Load(fn string) error {
 	contextBytes, err := ioutil.ReadFile(fn)
 	if err != nil {
 		return err
