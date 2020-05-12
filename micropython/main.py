@@ -19,7 +19,7 @@ UPP_SERVER = 'niomon.{}.ubirch.com'.format(cfg["env"])
 KEY_SERVER = 'key.{}.ubirch.com'.format(cfg["env"])
 BOOT_SERVER = 'api.console.{}.ubirch.com'.format(cfg["env"])
 
-device_name = "U"
+device_name = "ukey"
 cert_id = "ucrt"
 
 lte = LTE()
