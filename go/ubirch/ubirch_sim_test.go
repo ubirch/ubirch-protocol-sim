@@ -119,10 +119,11 @@ func TestSim_VerifyPin(t *testing.T) {
 
 // TestSim_GenerateSourceRandom tests the random number generator of the SIM card
 // according to [1] 2.1.3
-//		test Generate random number with 0 Bytes length
-// 		test Generate random number with 255 Bytes length, out of range
-// 		test Generate Secure Random with 32 Bytes
-// 		test Generate Secure Random number with 128 Bytes and compare to the 32 Bytes
+//		test Generate random number with 0 Bytes length, should return error
+// 		test Generate random number with 255 Bytes length, out of range, error
+// 		test Generate Secure Random with 1 Bytes (MIN), should pass
+// 		test Generate Secure Random with 32 Bytes, should pass
+// 		test Generate Secure Random number with 254 Bytes and compare to the 32 Bytes, should pass
 func TestSim_GenerateSecureRandom(t *testing.T) {
 	asserter := assert.New(t)
 	requirer := require.New(t)
@@ -144,18 +145,25 @@ func TestSim_GenerateSecureRandom(t *testing.T) {
 	// test Generate random nuber with 255 Bytes lenngth, out of range
 	_, err = sim.Random(255)
 	asserter.Errorf(err, "failed to throw error for 255 Bytes, max = 254")
+	// test Generate Secure Random with 1 Bytes (MIN)
+	_, err = sim.Random(1)
+	asserter.NoErrorf(err, "failed to generate random number")
 	// test Generate Secure Random with 32 Bytes
 	randBytes32, err := sim.Random(32)
 	asserter.NoErrorf(err, "failed to generate random number")
-	// test Generate Secure Random number with 128 Bytes and compare to the 32 Bytes
-	randBytes128, err := sim.Random(128)
+	// test Generate Secure Random number with 254 Bytes (MAX) and compare to the 32 Bytes
+	randBytes254, err := sim.Random(254)
 	asserter.NoErrorf(err, "failed to generate random number")
-	asserter.NotContainsf(randBytes128, randBytes32, "the big number should not contain the small number")
+	asserter.NotContainsf(randBytes254, randBytes32, "the big number should not contain the small number")
 }
 
 // TestSim_GenerateSourceRandom tests the random number generator of the SIM card
 // according to [1] 2.1.7
 func TestSim_GenerateKeyPair(t *testing.T) {
+	const (
+		testName = "testkey"
+		testUUID = "12345678-1234-1234-1234-123456789ABC"
+	)
 	asserter := assert.New(t)
 	requirer := require.New(t)
 
@@ -170,8 +178,14 @@ func TestSim_GenerateKeyPair(t *testing.T) {
 	// Verify PIN APDU
 	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
 
-	// test Generate Key Pair APDU // [1] 2.1.7
-	asserter.NoErrorf(sim.GenerateKey("testkey", uuid.Nil), "failed to generate Key Pair")
+	// test Generate Key Pair without name/ID
+	asserter.Errorf(sim.GenerateKey("", uuid.MustParse(testUUID)), "failed recognize empty name")
+	// test Generate Key Pair
+	asserter.NoErrorf(sim.GenerateKey(testName, uuid.MustParse(testUUID)), "failed to generate Key Pair")
+	// test Generate Key Pair
+	asserter.NoErrorf(sim.GenerateKey(testName, uuid.MustParse(testUUID)), "failed to generate Key Pair")
+	// test Generate and replace Key Pair
+	asserter.NoErrorf(sim.GenerateKey(testName, uuid.Nil), "failed to generate Key Pair") // TODO, do we need to check for nil UUIDs?
 }
 
 // assert functions
