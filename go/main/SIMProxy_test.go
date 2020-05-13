@@ -13,7 +13,6 @@ import (
 
 	ubirchprotocolgo "github.com/ubirch/ubirch-protocol-go/ubirch/v2"
 	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
-	"github.com/ubirch/ubirch-protocol-sim/go/ubirch/util"
 	"go.bug.st/serial"
 )
 
@@ -190,13 +189,13 @@ func openAndInitSIMProxy(t *testing.T, port string, baud int) *ubirch.Protocol {
 		t.Fatalf("serial port open failed: %v\n", err)
 		return nil
 	}
-	serialPort := util.SimSerialPort{Port: s, Debug: SIMProxySerialDebug}
+	serialPort := ubirch.SimSerialPort{Port: s, Debug: SIMProxySerialDebug}
 	serialPort.Init()
 
 	//noinspection GoUnhandledErrorResult
 	//defer serialPort.Close()
 
-	conf := util.Config{}
+	conf := Config{}
 	err = conf.Load("test_config.json")
 	if err != nil {
 		t.Fatalf("loading configuration failed: %v", err)
@@ -214,7 +213,7 @@ func openAndInitSIMProxy(t *testing.T, port string, baud int) *ubirch.Protocol {
 }
 
 func closeSIMProxy(t *testing.T, sim *ubirch.Protocol) {
-	castSIM, ok := sim.SimInterface.(*util.SimSerialPort)
+	castSIM, ok := sim.SimInterface.(*ubirch.SimSerialPort)
 	if !ok {
 		t.Fatal("Could not cast SIM interface to (*SimSerialPort) for closing.")
 	}
