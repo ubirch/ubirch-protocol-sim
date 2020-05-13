@@ -3,14 +3,16 @@ package ubirch
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/ubirch/ubirch-protocol-sim/go/ubirch/util"
 	"go.bug.st/serial"
+	"io/ioutil"
 	"log"
+	"os"
 	"testing"
 )
 
@@ -22,10 +24,32 @@ const ( //Global SIMProxy test settings
 	SIMProxyProtocolDebug = false
 )
 
-// commonSimInterface is a helper function to initialize th serial connection
+// configuration file structure
+type testConfig struct {
+	Password string `json:"password"` // password for the ubirch backend	(mandatory)
+	Debug    bool   `json:"debug"`    // enable extended debug output		(optional)
+	Uuid     string `json:"uuid"`     // the device uuid 					(set UUID here if you want to generate a new key pair on the SIM card)
+	Pin      string `json:"pin"`      // the SIM pin						(set PIN here if bootstrapping is not possible)
+}
+
+// Load the config file
+func (c *testConfig) helperLoad(fn string) error {
+	contextBytes, err := ioutil.ReadFile(fn)
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(contextBytes, c)
+	if err != nil {
+		log.Fatalf("unable to read configuration %v", err)
+		return err
+	}
+	return nil
+}
+
+// helperSimInterface is a helper function to initialize th serial connection
 // to the SIM card, currently within a GPy.
 // It returns a the Protocol and 'nil' error, if successful
-func commonSimInterface(debug bool) (Protocol, error) {
+func helperSimInterface(debug bool) (Protocol, error) {
 	mode := &serial.Mode{
 		BaudRate: SIMProxyBaudrate,
 		Parity:   serial.NoParity,
@@ -36,21 +60,21 @@ func commonSimInterface(debug bool) (Protocol, error) {
 	if err != nil {
 		return Protocol{}, err
 	}
-	serialPort := util.SimSerialPort{Port: s, Debug: true}
+	serialPort := SimSerialPort{Port: s, Debug: debug}
 	serialPort.Init()
 
 	return Protocol{SimInterface: &serialPort, Debug: debug}, err
 }
 
 // Load the configuration for the test environment
-func commonLoadConfig() (util.Config, error) {
-	conf := util.Config{}
-	err := conf.Load("test_config.json")
+func helperLoadConfig() (testConfig, error) {
+	conf := testConfig{}
+	err := conf.helperLoad("test_config.json")
 	return conf, err
 }
 
-// commonSelectFalseApplet selects a false Applet
-func commonSelectFalseApplet(p *Protocol) error {
+// helperSelectFalseApplet selects a false Applet
+func helperSelectFalseApplet(p *Protocol) error {
 	if p.Debug {
 		log.Println(">> select wrong SIM applet")
 	}
@@ -65,25 +89,38 @@ func commonSelectFalseApplet(p *Protocol) error {
 	return nil
 }
 
-// TestSim_selectApplet tests selecting the Applet
-// according to [1] 2.1.1
-//		test with the wrong Application Identifier, should return error
-//		test with the correct Apllication Identifier, should pass
-func TestSim_selectApplet(t *testing.T) {
-	asserter := assert.New(t)
-	requirer := require.New(t)
+// TestMain is the main test function, which checks the requirements and executes all other tests,
+// or exits with error message
+func TestMain(m *testing.M) {
+	// load the configuration
+	conf, err := helperLoadConfig()
+	if err != nil {
+		log.Fatalf("\r\n" +
+			"###\r\n" +
+			"ERROR loading the configuration file,\r\n" +
+			"Please copy the 'sample_test_config.json' to 'test_config.json'\r\n" +
+			"and enter the correct PIN for the SIM card, you want to test.\r\n" +
+			"###")
+	}
+	// check if PIN was entered into the configuration
+	if conf.Pin == "" {
+		log.Fatalf("ERROR, PIN number is not provided")
+	}
+	// Establish Interface to SIM and check if PIN is correct
+	sim, err := helperSimInterface(conf.Debug)
+	if err != nil {
+		log.Fatalf("ERROR initializing")
+	}
+	err = sim.authenticate(conf.Pin)
+	if err != nil {
+		sim.Close()
+		log.Printf("ERROR PIN number is INCORRECT, please provide the correct PIN to continue")
+	}
+	sim.Close()
 
-	conf, err := commonLoadConfig()
-	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := commonSimInterface(conf.Debug)
-	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
-	defer sim.Close()
-
-	// test the wrong Application
-	asserter.Errorf(commonSelectFalseApplet(&sim), " failed to return error")
-
-	// test the select Application APDU
-	asserter.NoErrorf(sim.selectApplet(), "failed to select the applet")
+	// run all other tests
+	code := m.Run()
+	os.Exit(code)
 }
 
 // *WARNING* careful with this function, it can block the SIM card,
@@ -97,9 +134,9 @@ func TestSim_VerifyPin(t *testing.T) {
 	asserter := assert.New(t)
 	requirer := require.New(t)
 
-	conf, err := commonLoadConfig()
+	conf, err := helperLoadConfig()
 	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := commonSimInterface(conf.Debug)
+	sim, err := helperSimInterface(conf.Debug)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 	// this is necessary before the PIN can be Verified TODO is this a bug?
@@ -117,6 +154,27 @@ func TestSim_VerifyPin(t *testing.T) {
 	asserter.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
 }
 
+// TestSim_selectApplet tests selecting the Applet
+// according to [1] 2.1.1
+//		test with the wrong Application Identifier, should return error
+//		test with the correct Apllication Identifier, should pass
+func TestSim_selectApplet(t *testing.T) {
+	asserter := assert.New(t)
+	requirer := require.New(t)
+
+	conf, err := helperLoadConfig()
+	requirer.NoErrorf(err, "failed to load configuration")
+	sim, err := helperSimInterface(conf.Debug)
+	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
+	defer sim.Close()
+
+	// test the wrong Application
+	asserter.Errorf(helperSelectFalseApplet(&sim), " failed to return error")
+
+	// test the select Application APDU
+	asserter.NoErrorf(sim.selectApplet(), "failed to select the applet")
+}
+
 // TestSim_GenerateSourceRandom tests the random number generator of the SIM card
 // according to [1] 2.1.3
 //		test Generate random number with 0 Bytes length, should return error
@@ -128,9 +186,9 @@ func TestSim_GenerateSecureRandom(t *testing.T) {
 	asserter := assert.New(t)
 	requirer := require.New(t)
 
-	conf, err := commonLoadConfig()
+	conf, err := helperLoadConfig()
 	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := commonSimInterface(conf.Debug)
+	sim, err := helperSimInterface(conf.Debug)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
@@ -167,9 +225,9 @@ func TestSim_GenerateKeyPair(t *testing.T) {
 	asserter := assert.New(t)
 	requirer := require.New(t)
 
-	conf, err := commonLoadConfig()
+	conf, err := helperLoadConfig()
 	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := commonSimInterface(conf.Debug)
+	sim, err := helperSimInterface(conf.Debug)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
