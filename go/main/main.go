@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
-	"github.com/ubirch/ubirch-protocol-sim/go/ubirch/util"
 	"go.bug.st/serial"
 	"log"
 	"math/rand"
@@ -43,13 +42,13 @@ func main() {
 		log.Printf("serial port open failed: %v\n", err)
 		os.Exit(1)
 	}
-	serialPort := util.SimSerialPort{Port: s, Debug: true}
+	serialPort := ubirch.SimSerialPort{Port: s, Debug: true}
 	serialPort.Init()
 
 	//noinspection GoUnhandledErrorResult
 	defer serialPort.Close()
 
-	conf := util.Config{}
+	conf := Config{}
 	err = conf.Load("config.json")
 	if err != nil {
 		log.Fatalf("loading configuration failed: %v", err)
@@ -224,7 +223,7 @@ func main() {
 	}
 }
 
-func getPIN(imsi string, conf util.Config) (string, error) {
+func getPIN(imsi string, conf Config) (string, error) {
 	if conf.Password == "" {
 		return "", fmt.Errorf("no auth token for backend set in config")
 	}
@@ -233,7 +232,7 @@ func getPIN(imsi string, conf util.Config) (string, error) {
 }
 
 // send a self signed JSON formatted key registration message to the UBIRCH backend
-func registerKeyLegacy(p *ubirch.Protocol, name string, uid uuid.UUID, conf util.Config) {
+func registerKeyLegacy(p *ubirch.Protocol, name string, uid uuid.UUID, conf Config) {
 	if conf.Password == "" {
 		return
 	}
@@ -256,12 +255,12 @@ func registerKeyLegacy(p *ubirch.Protocol, name string, uid uuid.UUID, conf util
 }
 
 // send a X.509 public key certificate to the UBIRCH backend
-func registerKey(cert []byte, conf util.Config) error {
+func registerKey(cert []byte, conf Config) error {
 	return fmt.Errorf("not implemented yet")
 }
 
 // send UPP to the UBIRCH backend
-func send(upp []byte, uid uuid.UUID, conf util.Config) {
+func send(upp []byte, uid uuid.UUID, conf Config) {
 	if conf.Password == "" {
 		return
 	}
