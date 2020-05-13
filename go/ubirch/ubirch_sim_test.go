@@ -32,6 +32,10 @@ type testConfig struct {
 	Pin      string `json:"pin"`      // the SIM pin						(set PIN here if bootstrapping is not possible)
 }
 
+//#############################################
+// --- helper functions, required for tests ---
+//#############################################
+
 // Load the config file
 func (c *testConfig) helperLoad(fn string) error {
 	contextBytes, err := ioutil.ReadFile(fn)
@@ -89,6 +93,10 @@ func helperSelectFalseApplet(p *Protocol) error {
 	return nil
 }
 
+//##################################################################
+// --- Main Test function, will be executed, if calling 'go test'---
+//##################################################################
+
 // TestMain is the main test function, which checks the requirements and executes all other tests,
 // or exits with error message
 func TestMain(m *testing.M) {
@@ -122,6 +130,10 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	os.Exit(code)
 }
+
+//################################################################
+// --- SIM function tests with serial interface to SIM card ---
+//################################################################
 
 // *WARNING* careful with this function, it can block the SIM card,
 // if entering the wrong PIN for 3 times in a row.
@@ -215,7 +227,8 @@ func TestSim_GenerateSecureRandom(t *testing.T) {
 	asserter.NotContainsf(randBytes254, randBytes32, "the big number should not contain the small number")
 }
 
-// TestSim_GenerateSourceRandom tests the random number generator of the SIM card
+// TestSim_GenerateSourceRandom tests the random number generator of the SIM card,
+// this test does not read the keys and check if they are correct, or have changed.
 // according to [1] 2.1.7
 func TestSim_GenerateKeyPair(t *testing.T) {
 	const (
@@ -245,6 +258,10 @@ func TestSim_GenerateKeyPair(t *testing.T) {
 	// test Generate and replace Key Pair
 	asserter.NoErrorf(sim.GenerateKey(testName, uuid.Nil), "failed to generate Key Pair") // TODO, do we need to check for nil UUIDs?
 }
+
+//################################################################
+// --- library function tests only software, wtih mock device ---
+//################################################################
 
 // assert functions
 func assertTagsEqual(t *testing.T, expected []Tag, actual []Tag) {
