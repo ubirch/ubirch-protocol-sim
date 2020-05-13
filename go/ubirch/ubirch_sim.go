@@ -39,9 +39,10 @@ const (
 	Chained ProtocolType = 0x23 // Chained UBIRCH protocol package
 
 	// APDU response codes
-	ApduOk       = 0x9000
-	ApduMoreData = 0x6310
-	ApduNotFound = 0x6A88
+	ApduOk        = uint16(0x9000)
+	ApduMoreData  = uint16(0x6310)
+	ApduNotFound  = uint16(0x6A88)
+	ApduWrongData = uint16(0x6A80)
 
 	// Application Identifier
 	stkAppDef = "D2760001180002FF34108389C0028B02"
