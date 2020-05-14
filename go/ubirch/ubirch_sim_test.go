@@ -6,14 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"go.bug.st/serial"
 	"io/ioutil"
 	"log"
 	"os"
 	"testing"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.bug.st/serial"
 )
 
 const ( //Global SIMProxy test settings
@@ -122,7 +123,7 @@ func TestMain(m *testing.M) {
 	err = sim.authenticate(conf.Pin)
 	if err != nil {
 		sim.Close()
-		log.Printf("ERROR PIN number is INCORRECT, please provide the correct PIN to continue")
+		log.Fatalf("ERROR PIN number is INCORRECT, please provide the correct PIN to continue")
 	}
 	sim.Close()
 
