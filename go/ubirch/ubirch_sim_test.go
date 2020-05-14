@@ -118,12 +118,12 @@ func TestMain(m *testing.M) {
 	// Establish Interface to SIM and check if PIN is correct
 	sim, err := helperSimInterface(conf.Debug)
 	if err != nil {
-		log.Fatalf("ERROR initializing")
+		log.Fatalf("ERROR initializing: %v", err)
 	}
 	err = sim.authenticate(conf.Pin)
 	if err != nil {
 		sim.Close()
-		log.Fatalf("ERROR PIN number is INCORRECT, please provide the correct PIN to continue")
+		log.Fatalf("ERROR PIN number is INCORRECT, please provide the correct PIN to continue\nReturned error: %v", err)
 	}
 	sim.Close()
 
