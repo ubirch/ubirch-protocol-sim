@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"io/ioutil"
 	"log"
 	"os"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.bug.st/serial"
@@ -120,6 +120,12 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Fatalf("ERROR initializing: %v", err)
 	}
+	// this is necessary before the PIN can be Verified TODO is this a bug?
+	err = sim.selectApplet()
+	if err != nil {
+		sim.Close()
+		log.Fatalf("ERROR selecting apllet failed with error %v", err)
+	}
 	err = sim.authenticate(conf.Pin)
 	if err != nil {
 		sim.Close()
@@ -133,8 +139,83 @@ func TestMain(m *testing.M) {
 }
 
 //################################################################
-// --- SIM function tests with serial interface to SIM card ---
+// --- new concept, test the implemented functions for the SIM ---
 //################################################################
+
+// TestSim_Init tests the Initialization of the SIM applet with authentication
+//	*NOTE*: no failure provocation implemented
+func TestSim_Init(t *testing.T) {
+	asserter := assert.New(t)
+	requirer := require.New(t)
+
+	conf, err := helperLoadConfig()
+	requirer.NoErrorf(err, "failed to load configuration")
+	sim, err := helperSimInterface(conf.Debug)
+	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
+	defer sim.Close()
+	// test initializing the SIM applet
+	asserter.NoErrorf(sim.Init(conf.Pin), "Initializing Applet failed")
+}
+
+// TestSim_GetIMSI tests getting the IMSI from the SIM card
+// 		test if the IMSI has the correct length (15) and
+//		test if, when getting the IMSI a second time, it has the same value
+//	*NOTE*: no failure provocation implemented
+func TestSim_GetIMSI(t *testing.T) {
+	const imsiLength = 15
+
+	asserter := assert.New(t)
+	requirer := require.New(t)
+
+	conf, err := helperLoadConfig()
+	requirer.NoErrorf(err, "failed to load configuration")
+	sim, err := helperSimInterface(conf.Debug)
+	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
+	defer sim.Close()
+
+	// test getting the IMSI and check the length
+	imsi, err := sim.GetIMSI()
+	asserter.NoErrorf(err, "failed to get IMSI")
+	asserter.Lenf(imsi, imsiLength, "IMSI has not the right length")
+	// test getting the IMSI again and chek the length
+	imsiProof, err := sim.GetIMSI()
+	asserter.NoErrorf(err, "failed to get IMSI")
+	asserter.Lenf(imsiProof, imsiLength, "IMSI has not the right length")
+	// compare the two IMSI values, they have to be equal
+	asserter.Equalf(imsi, imsiProof, "IMSI is not equal, at second reading")
+}
+
+// TestSim_GenerateSourceRandom tests the random number generator of the SIM card,
+// this test does not read the keys and check if they are correct, or have changed.
+// according to [1] 2.1.7
+func TestSim_GenerateKeyPair(t *testing.T) {
+	const (
+		testName = "testkey"
+		testUUID = "12345678-1234-1234-1234-123456789ABC"
+	)
+	asserter := assert.New(t)
+	requirer := require.New(t)
+
+	conf, err := helperLoadConfig()
+	requirer.NoErrorf(err, "failed to load configuration")
+	sim, err := helperSimInterface(conf.Debug)
+	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
+	defer sim.Close()
+
+	// select Application APDU
+	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
+	// Verify PIN APDU
+	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+
+	// test Generate Key Pair without name/ID
+	asserter.Errorf(sim.GenerateKey("", uuid.MustParse(testUUID)), "failed recognize empty name")
+	// test Generate Key Pair
+	asserter.NoErrorf(sim.GenerateKey(testName, uuid.MustParse(testUUID)), "failed to generate Key Pair")
+	// test Generate Key Pair
+	asserter.NoErrorf(sim.GenerateKey(testName, uuid.MustParse(testUUID)), "failed to generate Key Pair")
+	// test Generate and replace Key Pair
+	asserter.NoErrorf(sim.GenerateKey(testName, uuid.Nil), "failed to generate Key Pair") // TODO, do we need to check for nil UUIDs?
+}
 
 // *WARNING* careful with this function, it can block the SIM card,
 // if entering the wrong PIN for 3 times in a row.
@@ -228,14 +309,10 @@ func TestSim_GenerateSecureRandom(t *testing.T) {
 	asserter.NotContainsf(randBytes254, randBytes32, "the big number should not contain the small number")
 }
 
-// TestSim_GenerateSourceRandom tests the random number generator of the SIM card,
-// this test does not read the keys and check if they are correct, or have changed.
-// according to [1] 2.1.7
-func TestSim_GenerateKeyPair(t *testing.T) {
-	const (
-		testName = "testkey"
-		testUUID = "12345678-1234-1234-1234-123456789ABC"
-	)
+// todo, WIP
+func TestProtocol_GetCertificate(t *testing.T) {
+	const testName = "unknownName"
+
 	asserter := assert.New(t)
 	requirer := require.New(t)
 
@@ -250,15 +327,66 @@ func TestSim_GenerateKeyPair(t *testing.T) {
 	// Verify PIN APDU
 	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
 
-	// test Generate Key Pair without name/ID
-	asserter.Errorf(sim.GenerateKey("", uuid.MustParse(testUUID)), "failed recognize empty name")
-	// test Generate Key Pair
-	asserter.NoErrorf(sim.GenerateKey(testName, uuid.MustParse(testUUID)), "failed to generate Key Pair")
-	// test Generate Key Pair
-	asserter.NoErrorf(sim.GenerateKey(testName, uuid.MustParse(testUUID)), "failed to generate Key Pair")
-	// test Generate and replace Key Pair
-	asserter.NoErrorf(sim.GenerateKey(testName, uuid.Nil), "failed to generate Key Pair") // TODO, do we need to check for nil UUIDs?
+	// test getting Certificate with unknown ID
+	cert, err := sim.GetCertificate(testName)
+	asserter.Errorf(err, "got Certificate for unknown ID")
+	asserter.Nilf(cert, "Certificate for unknown ID is not 'Nil'")
+	// test getting Certificate with empty ID
+	cert, err = sim.GetCertificate("")
+	asserter.Errorf(err, "got Certificate for unknown ID")
+	asserter.Nilf(cert, "Certificate for unknown ID is not 'Nil'")
+
+	// test getting Certificate with empty ID
+	cert, err = sim.GetCertificate("ucrt")
+	asserter.NoErrorf(err, "got Certificate for unknown ID")
+	asserter.NotNilf(cert, "Certificate for unknown ID is not 'Nil'")
+	log.Printf(hex.EncodeToString(cert))
+	// todo, do not know how to continue here
 }
+
+func TestProtocol_DeleteAll(t *testing.T) {
+
+}
+
+func TestProtocol_GenerateCSR(t *testing.T) {
+
+}
+
+func TestProtocol_GetKey(t *testing.T) {
+
+}
+
+func TestProtocol_GetUUID(t *testing.T) {
+
+}
+
+func TestProtocol_GetVerificationKey(t *testing.T) {
+
+}
+
+func TestProtocol_PutKey(t *testing.T) {
+
+}
+
+func TestProtocol_Sign(t *testing.T) {
+
+}
+
+func TestProtocol_StoreCertificate(t *testing.T) {
+
+}
+
+func TestProtocol_UpdateCertificate(t *testing.T) {
+
+}
+
+func TestProtocol_Verify(t *testing.T) {
+
+}
+
+//################################################################
+// --- SIM function tests with serial interface to SIM card ---
+//################################################################
 
 //################################################################
 // --- library function tests only software, wtih mock device ---
