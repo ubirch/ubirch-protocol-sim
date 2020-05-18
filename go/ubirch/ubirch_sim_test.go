@@ -2,19 +2,24 @@ package ubirch
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/big"
 	"os"
 	"testing"
 
 	"github.com/google/uuid"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ubirchprotocolgo "github.com/ubirch/ubirch-protocol-go/ubirch/v2"
 	"go.bug.st/serial"
 )
 
@@ -24,6 +29,14 @@ const ( //Global SIMProxy test settings
 	SIMProxyName          = "ukey"
 	SIMProxySerialDebug   = false
 	SIMProxyProtocolDebug = false
+)
+
+////Constants////
+//constants to avoid 'magic numbers' in the code
+const (
+	lenPubkeyECDSA    = 64
+	lenPrivkeyECDSA   = 32
+	lenSignatureECDSA = 64
 )
 
 // configuration file structure
@@ -92,6 +105,158 @@ func helperSelectFalseApplet(p *Protocol) error {
 	if code != ApduOk {
 		return fmt.Errorf("APDU error: %x, select failed", code)
 	}
+	return nil
+}
+
+//Do a verification of the UPP signature with the go ecdsa library
+func helperVerifyUPPSignature(t *testing.T, uppBytes []byte, pubkeyBytes []byte) (bool, error) {
+	//Check that UPP data is OK in general
+	if len(pubkeyBytes) != 64 {
+		return false, fmt.Errorf("pubkey is not 64 bytes long")
+	}
+	if len(uppBytes) <= 66 { //check for minimal UPP packet size
+		return false, fmt.Errorf("UPP data is too short (%v bytes)", len(uppBytes))
+	}
+
+	//Extract signature, data, and hash of data from UPP
+	signature := uppBytes[len(uppBytes)-64:]
+	dataToHash := uppBytes[:len(uppBytes)-66]
+	hash := sha256.Sum256(dataToHash)
+
+	//Set variables so they are in the format the ecdsa lib expects them
+	x := &big.Int{}
+	x.SetBytes(pubkeyBytes[0:32])
+	y := &big.Int{}
+	y.SetBytes(pubkeyBytes[32:64])
+	pubkey := ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}
+
+	r, s := &big.Int{}, &big.Int{}
+	r.SetBytes(signature[:32])
+	s.SetBytes(signature[32:])
+
+	//Do the verification and return result
+	verifyOK := ecdsa.Verify(&pubkey, hash[:], r, s)
+	return verifyOK, nil
+}
+
+//Do a verification of the UPP chain ("lastSignature" in "chained" packets must be the signature of previous UPP)
+//data is passed in as an array of byte arrays, each representing one UPP in correct order
+//startSignature is the signature before the first packet in the array (=lastSignature in first UPP)
+//returns no error if chain verification passes
+func helperVerifyUPPChain(t *testing.T, uppsArray [][]byte, startSignature []byte) error {
+	if len(uppsArray) == 0 {
+		return fmt.Errorf("UPP array is empty")
+	}
+	expectedUPPlastSig := startSignature
+	//iterate over all UPPs in array
+	for currUppIndex, currUppData := range uppsArray {
+		//Check that this UPP's data is OK in general
+		//TODO use library defines instead of magic numbers for signature length and position as soon as they are available
+		if len(currUppData) < (1 + 16 + 64 + 1 + 0 + 64) { //check for minimal UPP packet size (VERSION|UUID|PREV-SIGNATURE|TYPE|PAYLOAD|SIGNATURE)
+			return fmt.Errorf("UPP data is too short (%v bytes) at UPP index %v", len(currUppData), currUppIndex)
+		}
+		//copy "last signature" field of current UPP and compare to expectation
+		//TODO use library defines instead of magic numbers for signature length and position as soon as they are available
+		currUppLastSig := currUppData[22 : 22+64]
+		if !bytes.Equal(expectedUPPlastSig, currUppLastSig) {
+			return fmt.Errorf("Signature chain mismatch between UPPs at index %v and %v", currUppIndex, currUppIndex-1)
+		}
+		//save signature of this packet as expected "lastSig" for next packet
+		expectedUPPlastSig = currUppData[len(currUppData)-64:]
+	}
+	//If we reach this, everything was checked without errors
+	return nil
+}
+
+//checkSignedUPP checks a signed type UPP. Parameters are passed as strings.
+//The following checks are performed: signature OK, decoding works, payload as expected
+//If everything is OK no error is returned, else the error indicates the failing check.
+func helperCheckSignedUPP(t *testing.T, uppData []byte, expectedPayload string, pubKey string) error {
+	//Decode Pubkey for checking UPPs
+	pubkeyBytes, err := hex.DecodeString(pubKey)
+	if err != nil {
+		return fmt.Errorf("Test configuration string (pubkey) can't be decoded.\nString was: %v", pubKey)
+	}
+
+	//Check each signed UPP...
+	//...decoding/payload
+	decodedSigned, err := ubirchprotocolgo.Decode(uppData)
+	if err != nil {
+		return fmt.Errorf("UPP could not be decoded")
+	}
+	signed := decodedSigned.(*ubirchprotocolgo.SignedUPP)
+	expectedPayloadBytes, err := hex.DecodeString(expectedPayload)
+	if err != nil {
+		return fmt.Errorf("Test configuration string (expectedPayload) can't be decoded. \nString was: %v", expectedPayload)
+	}
+	if !bytes.Equal(expectedPayloadBytes[:], signed.Payload) {
+		return fmt.Errorf("Payload does not match expectation.\nExpected:\n%v\nGot:\n%v", hex.EncodeToString(expectedPayloadBytes[:]), hex.EncodeToString(signed.Payload))
+	}
+	//...Signature
+	verifyOK, err := helperVerifyUPPSignature(t, uppData, pubkeyBytes)
+	if err != nil {
+		return fmt.Errorf("Signature verification could not be performed, error: %v", err)
+	}
+	if !verifyOK {
+		return fmt.Errorf("Signature is not OK")
+	}
+
+	//If we reach this, everything was checked without errors
+	return nil
+}
+
+//checkChainedUPPs checks an array of chained type UPPs. Parameters are passed as strings.
+//The following checks are performed: signatures OK, decoding works, payload as expected, chaining OK
+//If everything is OK no error is returned, else the error indicates the failing check.
+func helperCheckChainedUPPs(t *testing.T, uppsArray [][]byte, expectedPayloads []string, startSignature string, pubKey string) error {
+	//Catch general errors
+	if len(uppsArray) == 0 {
+		return fmt.Errorf("UPP array is empty")
+	}
+	if len(uppsArray) != len(expectedPayloads) {
+		return fmt.Errorf("Number of UPPs and expected payloads not equal")
+	}
+	//Decode Pubkey for checking UPPs
+	pubkeyBytes, err := hex.DecodeString(pubKey)
+	if err != nil {
+		return fmt.Errorf("Test configuration string (pubkey) can't be decoded.\nString was: %v", pubKey)
+	}
+	//Decode last signature
+	lastSigBytes, err := hex.DecodeString(startSignature)
+	if err != nil {
+		return fmt.Errorf("Test configuration string (startSig) can't be decoded.\nString was: %v", startSignature)
+	}
+
+	//Check each chained UPP...
+	for chainedUppIndex, chainedUppData := range uppsArray {
+		//...decoding/payload/hash
+		decodedChained, err := ubirchprotocolgo.Decode(chainedUppData)
+		if err != nil {
+			return fmt.Errorf("UPP could not be decoded for UPP at index %v, error: %v", chainedUppIndex, err)
+		}
+		chained := decodedChained.(*ubirchprotocolgo.ChainedUPP)
+		expectedPayload, err := hex.DecodeString(expectedPayloads[chainedUppIndex])
+		if err != nil {
+			return fmt.Errorf("Test configuration string (expectedPayload) can't be decoded at index %v.\nString was: %v", chainedUppIndex, expectedPayloads[chainedUppIndex])
+		}
+		if !bytes.Equal(expectedPayload[:], chained.Payload) {
+			return fmt.Errorf("Payload does not match expectation for UPP at index %v\nExpected:\n%v\nGot:\n%v", chainedUppIndex, hex.EncodeToString(expectedPayload[:]), hex.EncodeToString(chained.Payload))
+		}
+		//...Signature
+		verifyOK, err := helperVerifyUPPSignature(t, chainedUppData, pubkeyBytes)
+		if err != nil {
+			return fmt.Errorf("Signature verification could not be performed due to errors for UPP at index %v, error: %v", chainedUppIndex, err)
+		}
+		if !verifyOK {
+			return fmt.Errorf("Signature is not OK for UPP at index %v", chainedUppIndex)
+		}
+	}
+	//... check chain iself
+	err = helperVerifyUPPChain(t, uppsArray, lastSigBytes)
+	if err != nil {
+		return err //return the info from the chain check error
+	}
+	//If we reach this, everything was checked without errors
 	return nil
 }
 
@@ -369,8 +534,74 @@ func TestProtocol_PutKey(t *testing.T) {
 
 }
 
-func TestProtocol_Sign(t *testing.T) {
+//TestSim_Sign_RandomInput tests if sim.Sign can correctly create UPPs
+// for random input data for the signed and chained protocol type
+//This test always uses the SIM to generate the hash of the data
+func TestSim_Sign_RandomInput(t *testing.T) {
+	const numberOfTests = 2
+	const nrOfChainedUpps = 3
+	const dataLength = 200 //bytes
 
+	inputData := make([]byte, dataLength)
+
+	asserter := assert.New(t)
+	requirer := require.New(t)
+
+	//do general preparation/initialization
+	conf, err := helperLoadConfig()
+	requirer.NoErrorf(err, "failed to load configuration")
+	sim, err := helperSimInterface(conf.Debug)
+	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
+	defer sim.Close()
+	//get the pubkey from the SIM
+	//TODO: Make sure we have a key generated?
+	simPubkeyBytes, err := sim.GetKey(SIMProxyName)
+	requirer.NoError(err, "Could not get pubkey from SIM")
+	requirer.NotZero(len(simPubkeyBytes), "Returned pubkey is empty")
+	simPubkey := hex.EncodeToString(simPubkeyBytes)
+
+	//workaround for missing sim.getLastSignature(): create UPP and save signature
+	upp, err := sim.Sign(SIMProxyName, []byte("somedata"), Chained, true)
+	requirer.NoError(err, "Could not create UPP")
+	lastChainSig := hex.EncodeToString(upp[len(upp)-lenSignatureECDSA:])
+
+	//test the random input
+	for i := 0; i < numberOfTests; i++ {
+		t.Logf("Running random sign test %v/%v", i+1, numberOfTests)
+		//generate new input
+		_, err := rand.Read(inputData)
+		requirer.NoError(err, "Could not generate random data")
+		//Calculate hash, TODO: Make this dependent on crypto if more than one crypto is implemented
+		inputDataHash := sha256.Sum256(inputData)
+
+		//Create 'Signed' type UPP with data
+		t.Log("Creating 'signed' UPP")
+		createdSignedUpp, err := sim.Sign(SIMProxyName, inputData[:], Signed, true)
+		requirer.NoErrorf(err, "Protocol.SignData() failed for Signed type UPP with input data %v", hex.EncodeToString(inputData))
+
+		//Check created Signed UPP
+		expectedPayloadString := hex.EncodeToString(inputDataHash[:])
+		err = helperCheckSignedUPP(t, createdSignedUpp, expectedPayloadString, simPubkey)
+		asserter.NoError(err, "UPP check failed for Signed type UPP with input data %v", hex.EncodeToString(inputData))
+
+		//Create multiple chained UPPs
+		t.Log("Creating 'chained' UPPs")
+		createdChainedUpps := make([][]byte, nrOfChainedUpps)
+		expectedPayloads := make([]string, nrOfChainedUpps)
+		for currUppIndex := range createdChainedUpps {
+			createdChainedUpps[currUppIndex], err = sim.Sign(SIMProxyName, inputData[:], Chained, true)
+			asserter.NoErrorf(err, "SignData() could not create Chained type UPP for index %v", currUppIndex)
+			expectedPayloads[currUppIndex] = hex.EncodeToString(inputDataHash[:]) //build expected payload array for checking later
+		}
+
+		//Check the created UPPs
+		err = helperCheckChainedUPPs(t, createdChainedUpps, expectedPayloads, lastChainSig, simPubkey)
+		asserter.NoError(err, "UPP check failed for Chained type UPPs with input data %v", hex.EncodeToString(inputData))
+
+		//save the last Signature of chain for check in next round TODO: get this using a library function when available
+		lastChainUpp := createdChainedUpps[nrOfChainedUpps-1]
+		lastChainSig = hex.EncodeToString(lastChainUpp[len(lastChainUpp)-lenSignatureECDSA:])
+	}
 }
 
 func TestProtocol_StoreCertificate(t *testing.T) {
