@@ -6,11 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	"io/ioutil"
 	"log"
 	"os"
 	"testing"
+
+	"github.com/google/uuid"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -340,7 +341,7 @@ func TestProtocol_GetCertificate(t *testing.T) {
 	cert, err = sim.GetCertificate("ucrt")
 	asserter.NoErrorf(err, "got Certificate for unknown ID")
 	asserter.NotNilf(cert, "Certificate for unknown ID is not 'Nil'")
-	log.Printf(hex.EncodeToString(cert))
+	t.Logf(hex.EncodeToString(cert))
 	// todo, do not know how to continue here
 }
 
@@ -441,7 +442,9 @@ var TestCases = []TestData{
 }
 
 func TestAPDUEncode(t *testing.T) {
-	p := Protocol{nil, true}
+	conf, err := helperLoadConfig()
+	require.NoErrorf(t, err, "failed to load configuration")
+	p := Protocol{nil, conf.Debug}
 	for i, c := range TestCases {
 		result, _ := p.encode(c.args)
 		if result != c.encoded {
@@ -451,7 +454,9 @@ func TestAPDUEncode(t *testing.T) {
 }
 
 func TestAPDUDecode(t *testing.T) {
-	p := Protocol{nil, true}
+	conf, err := helperLoadConfig()
+	require.NoErrorf(t, err, "failed to load configuration")
+	p := Protocol{nil, conf.Debug}
 	for i, c := range TestCases {
 		result, err := p.decode(c.encoded)
 		if err != nil {
@@ -469,14 +474,15 @@ func TestAPDUDecodeFails(t *testing.T) {
 		"FF0301020304",                     // 04 is incorrect, no tag length or data
 		"D30100E700C2030B0100D001",         // ArgGetCSREncoded but last byte missing
 	}
-
-	p := Protocol{nil, true}
+	conf, err := helperLoadConfig()
+	require.NoErrorf(t, err, "failed to load configuration")
+	p := Protocol{nil, conf.Debug}
 	for i, c := range broken {
 		r, err := p.decode(c)
 		if err == nil {
 			t.Errorf("case %d: decoded broken input: '%s', %v", i, c, r)
 		} else {
-			log.Print(err)
+			t.Log(err)
 		}
 	}
 }
@@ -499,8 +505,9 @@ func TestExecuteFailSend(t *testing.T) {
 	writeFails := func(s string) ([]string, error) {
 		return nil, errors.New("write failed")
 	}
-
-	sim := Protocol{MockSimSerialPort{writeFails}, true}
+	conf, err := helperLoadConfig()
+	require.NoErrorf(t, err, "failed to load configuration")
+	sim := Protocol{MockSimSerialPort{writeFails}, conf.Debug}
 	_, code, err := sim.execute("whatever")
 
 	if err == nil || code == ApduOk {
@@ -517,14 +524,15 @@ func TestExecuteFails(t *testing.T) {
 	}
 
 	for _, response := range responses {
-		log.Printf("checking response '%s'\n", response)
+		t.Logf("checking response '%s'\n", response)
 		writeFails := func(s string) ([]string, error) {
 			return response, nil
 		}
-
-		sim := Protocol{MockSimSerialPort{writeFails}, true}
+		conf, err := helperLoadConfig()
+		require.NoErrorf(t, err, "failed to load configuration")
+		sim := Protocol{MockSimSerialPort{writeFails}, conf.Debug}
 		_, code, err := sim.execute("whatever")
-		log.Printf("received error %v", err)
+		t.Logf("received error %v", err)
 
 		if err == nil || code == ApduOk {
 			t.Errorf("response '%s' should have failed", response)
@@ -536,8 +544,9 @@ func TestExecuteSimpleOk(t *testing.T) {
 	writeOkay := func(s string) ([]string, error) {
 		return []string{"+CSIM: 4,9000", "OK"}, nil
 	}
-
-	sim := Protocol{MockSimSerialPort{writeOkay}, true}
+	conf, err := helperLoadConfig()
+	require.NoErrorf(t, err, "failed to load configuration")
+	sim := Protocol{MockSimSerialPort{writeOkay}, conf.Debug}
 	cmd := "010203040506070809"
 
 	_, code, err := sim.execute(cmd)
@@ -552,8 +561,9 @@ func TestExecuteSimpleOkWithData(t *testing.T) {
 	writeOkay := func(s string) ([]string, error) {
 		return []string{fmt.Sprintf("+CSIM: 12,%s9000", data), "OK"}, nil
 	}
-
-	sim := Protocol{MockSimSerialPort{writeOkay}, true}
+	conf, err := helperLoadConfig()
+	require.NoErrorf(t, err, "failed to load configuration")
+	sim := Protocol{MockSimSerialPort{writeOkay}, conf.Debug}
 	cmd := "010203040506070809"
 
 	r, code, err := sim.execute(cmd)
@@ -567,10 +577,12 @@ func TestExecuteSimpleOkWithData(t *testing.T) {
 }
 
 func TestProtocol_Init_Mock(t *testing.T) {
+	conf, err := helperLoadConfig()
+	require.NoErrorf(t, err, "failed to load configuration")
 	sim := Protocol{MockSimSerialPort{func(s string) ([]string, error) {
 		return []string{"+CSIM: 4,9000", "OK"}, nil
-	}}, true}
-	err := sim.Init("1234")
+	}}, conf.Debug}
+	err = sim.Init("1234")
 	if err != nil {
 		t.Errorf("init failed: %v", err)
 	}
@@ -581,21 +593,22 @@ func TestDecodeExampleCSRRequest(t *testing.T) {
 		"C40142C4025F42E559D30100E74CD4024445D5064265726C696ED6064265726C696ED70B75626972636820476D6248D8085365637572697479D90A7562697263682E636F6DDA137365637572697479407562697263682E636F6DC2030B0100D00121",
 		"C414CE4A19D55815BC1E220B254AAF6F155FFF12AF47C41481EA21DC786DA274A0689628149E85F03AE8ADA0E551D30100E744D4024553D509436174616C6F6E6961D60942617263656C6F6E61D70447444D53D803474449D909546573742055736572DA1274657374757365724067692D64652E636F6DC2030B0100D00121",
 	}
-
-	sim := Protocol{nil, true}
+	conf, err := helperLoadConfig()
+	require.NoErrorf(t, err, "failed to load configuration")
+	sim := Protocol{nil, conf.Debug}
 	for _, s := range examples {
-		log.Print(s)
+		t.Log(s)
 		tags, err := sim.decode(s)
 		if err != nil {
 			t.Errorf("decoding failed: %v", err)
 		}
-		log.Print("====")
+		t.Log("====")
 		for _, tag := range tags {
 			if tag.Tag == 0xe5 {
 				tags, err = sim.decodeBinary(tag.Data)
 				for _, tag := range tags {
 					if tag.Tag == 0xe7 {
-						log.Print("====")
+						t.Log("====")
 						_, _ = sim.decodeBinary(tag.Data)
 					}
 				}
