@@ -34,6 +34,16 @@ type ProtocolType byte
 
 //noinspection GoUnusedConst
 const (
+	//constants for number of bytes used for parameters of NIST P-256 curve
+	nistp256PrivkeyLength   = 32                                //Bytes
+	nistp256XLength         = 32                                //Bytes
+	nistp256YLength         = 32                                //Bytes
+	nistp256PubkeyLength    = nistp256XLength + nistp256YLength //Bytes, Pubkey = concatenate(X,Y)
+	nistp256RLength         = 32                                //Bytes
+	nistp256SLength         = 32                                //Bytes
+	nistp256SignatureLength = nistp256RLength + nistp256SLength //Bytes, Signature = concatenate(R,S)
+)
+const (
 	Plain   ProtocolType = 0x00 // Plain signature
 	Signed  ProtocolType = 0x22 // Signed UBIRCH protocol package
 	Chained ProtocolType = 0x23 // Chained UBIRCH protocol package
@@ -52,11 +62,12 @@ const (
 	stkAuthPin     = "00200000%02X%s" // authenticate with pin ([1], 2.1.2)
 
 	// Generic app commands
-	stkAppSelect        = "00A4040010%s"   // APDU Select Application ([1], 2.1.1)
-	stkAppRandom        = "80B900%02X00"   // APDU Generate Secure Random ([1], 2.1.3)
-	stkAppSsEntrySelect = "80A50000%02X%s" // APDU Select SS Entry ([1], 2.1.4)
-	stkAppDeleteAll     = "80E50000"       // APDU Delete All SS Entries
-	stkAppSsEntryIdGet  = "80B10000%02X%s" // APDU Get SS Entry ID
+	stkAppSelect          = "00A4040010%s"   // APDU Select Application ([1], 2.1.1)
+	stkAppRandom          = "80B900%02X00"   // APDU Generate Secure Random ([1], 2.1.3)
+	stkAppSsEntrySelect   = "80A50000%02X%s" // APDU Select SS Entry ([1], 2.1.4)
+	stkAppDeleteAll       = "80E50000"       // APDU Delete All SS Entries
+	stkAppSsDeleteEntryID = "80E40000%02X%s" // APDU Delete SS Entry ([1], 2.1.5)
+	stkAppSsEntryIdGet    = "80B10000%02X%s" // APDU Get SS Entry ID
 
 	// Ubirch specific commands
 	stkAppKeyGenerate = "80B28000%02X%s"   // APDU Generate an ECC Key Pair ([1], 2.1.7)
@@ -259,6 +270,31 @@ func (p *Protocol) Init(pin string) error {
 	return p.authenticate(pin)
 }
 
+//DeleteSSEntryID deletes an entry in the secure storage (SS) of the SIM using it's entry ID
+//It returns the response code and the error condition. The code can be used to unambigously check
+//the cause of the error in the caller.
+func (p *Protocol) DeleteSSEntryID(entryID string) (uint16, error) {
+	if p.Debug {
+		log.Printf(">> deleting SS entry \"%s\"", entryID)
+	}
+	// delete SS entry command
+	_, code, err := p.execute(stkAppSsDeleteEntryID, len(entryID), hex.EncodeToString([]byte(entryID)))
+	if err != nil {
+		return code, err
+	}
+
+	switch code {
+	case ApduOk:
+		return code, nil
+	case ApduNotFound:
+		return code, fmt.Errorf("entry \"%s\" not found", entryID)
+	case ApduWrongData:
+		return code, fmt.Errorf("invalid entry ID length")
+	default:
+		return code, fmt.Errorf("unexpected return code received")
+	}
+}
+
 // Delete all SSEntries on the SIM card, effectively erasing all stored keys.
 // This may not work, depending on the application settings.
 func (p *Protocol) DeleteAll() error {
@@ -317,8 +353,8 @@ func (p *Protocol) GetIMSI() (string, error) {
 	return imsi, err
 }
 
-// [WIP] Store an ECC public key to the SIM cards secure storage
-func (p *Protocol) PutKey(name string, uid uuid.UUID, pubKey []byte) error {
+//PutPubKey stores an ECC public key to the SIM cards secure storage
+func (p *Protocol) PutPubKey(name string, uid uuid.UUID, pubKey []byte) error {
 	if p.Debug {
 		log.Printf(">> put key \"%s\"", name)
 	}
@@ -327,12 +363,19 @@ func (p *Protocol) PutKey(name string, uid uuid.UUID, pubKey []byte) error {
 		return err
 	}
 
+	if len(pubKey) != nistp256PubkeyLength {
+		return fmt.Errorf("pub key has invalid length. got: %v, expected: %v", len(pubKey), nistp256PubkeyLength)
+	}
+
+	//Workaround: the SIM expects the pubkey to start with 0x04 for some reason (undocumented behavior/bug)
+	pubKey = append([]byte{0x04}, pubKey...)
+
 	args, err := p.encode([]Tag{
 		{0xC4, []byte(name)},             // Entry ID for public key
 		{0xC0, uidBytes},                 // Entry title (UUID)
 		{0xC1, []byte{0x03}},             // Permission: Read & Write Allowed
 		{0xC2, []byte{0x0B, 0x01, 0x00}}, // Key Type: TYPE_EC_FP_PUBLIC, Key Length: LENGTH_EC_FP_256
-		{0xC3, pubKey},                   // Public key to be stored
+		{0xC3, pubKey},                   // Public key to be stored (see workaround comment above)
 	})
 	if err != nil {
 		return err
