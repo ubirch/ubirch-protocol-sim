@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -518,11 +519,36 @@ func TestProtocol_GetCertificate(t *testing.T) {
 	asserter.Nilf(cert, "Certificate for unknown ID is not 'Nil'")
 
 	// test getting Certificate with empty ID
-	cert, err = sim.GetCertificate("ucrt")
+	cert, err = sim.GetCertificate("ucrt") //todo, why are there so many trailing 0x00 ???
 	asserter.NoErrorf(err, "got Certificate for unknown ID")
 	asserter.NotNilf(cert, "Certificate for unknown ID is not 'Nil'")
-	t.Logf(hex.EncodeToString(cert))
-	// todo, do not know how to continue here
+	// check if it is a x509 certificate
+	certPEM, err := x509.ParseCertificate(bytes.Trim(cert, "\x00")) //todo, why are there so many trailing 0x00 ???
+	asserter.NoErrorf(err, "error parsing the Certificate")
+	asserter.NotNilf(certPEM, "Certificate should not be Nil")
+
+	// First, create the set of root certificates. For this example we only
+	// have one. It's also possible to omit this in order to use the
+	// default root set of the current operating system.
+	rootPEM, err := ioutil.ReadFile("ubirch-prod.cacert.pem")
+	rootDER, err := ioutil.ReadFile("ubirch-prod.cacert.der")
+	rootCertPEM, err := x509.ParseCertificate(bytes.Trim(rootDER, "\x00"))
+	requirer.NoErrorf(err, "failed to parse root Certificate")
+	requirer.NotNilf(rootCertPEM, "root Certificate is Nil")
+	asserter.NoErrorf(certPEM.CheckSignatureFrom(rootCertPEM), "Failed to verify Signature from root")
+
+	requirer.NoErrorf(err, "Missing root Certificate")
+	roots := x509.NewCertPool()
+	requirer.Truef(roots.AppendCertsFromPEM(rootPEM), "could not append Root Certificate")
+
+	opts := x509.VerifyOptions{
+		Roots: roots,
+	}
+
+	if _, err := certPEM.Verify(opts); err != nil {
+		log.Printf("failed to verify certificate: " + err.Error())
+	}
+	//todo currently failing because of reasons, I have to discuss with Micha
 }
 
 func TestProtocol_DeleteAll(t *testing.T) {
