@@ -62,12 +62,14 @@ const (
 	stkAuthPin     = "00200000%02X%s" // authenticate with pin ([1], 2.1.2)
 
 	// Generic app commands
-	stkAppSelect          = "00A4040010%s"   // APDU Select Application ([1], 2.1.1)
-	stkAppRandom          = "80B900%02X00"   // APDU Generate Secure Random ([1], 2.1.3)
-	stkAppSsEntrySelect   = "80A50000%02X%s" // APDU Select SS Entry ([1], 2.1.4)
-	stkAppDeleteAll       = "80E50000"       // APDU Delete All SS Entries
-	stkAppSsDeleteEntryID = "80E40000%02X%s" // APDU Delete SS Entry ([1], 2.1.5)
-	stkAppSsEntryIdGet    = "80B10000%02X%s" // APDU Get SS Entry ID
+	stkAppSelect             = "00A4040010%s"   // APDU Select Application ([1], 2.1.1)
+	stkAppRandom             = "80B900%02X00"   // APDU Generate Secure Random ([1], 2.1.3)
+	stkAppSsEntrySelect      = "80A50000%02X%s" // APDU Select SS Entry ([1], 2.1.4)
+	stkAppSsEntrySelectFirst = "80A5010000"     // APDU Select First SS Entry ([1], 2.1.4)
+	stkAppSsEntrySelectNext  = "80A5020000"     // APDU Select Next SS Entry ([1], 2.1.4)
+	stkAppDeleteAll          = "80E50000"       // APDU Delete All SS Entries
+	stkAppSsDeleteEntryID    = "80E40000%02X%s" // APDU Delete SS Entry ([1], 2.1.5)
+	stkAppSsEntryIdGet       = "80B10000%02X%s" // APDU Get SS Entry ID
 
 	// Ubirch specific commands
 	stkAppKeyGenerate = "80B28000%02X%s"   // APDU Generate an ECC Key Pair ([1], 2.1.7)
@@ -269,6 +271,57 @@ func (p *Protocol) Init(pin string) error {
 		return err
 	}
 	return p.authenticate(pin)
+}
+
+// GetAllSSEntries gets IDs and titles of all SS entries present on the SIM, this includes keys and certificates
+func (p *Protocol) GetAllSSEntries() ([]map[string]string, error) {
+	if p.Debug {
+		log.Printf(">> get all SS entries")
+	}
+	entryMap := []map[string]string{}
+	currEntry := 0
+	selectCommand := stkAppSsEntrySelectFirst
+	done := false
+
+	for !done {
+		//select which command to use based on start or continuation of the selection process
+		if currEntry == 0 {
+			selectCommand = stkAppSsEntrySelectFirst
+		} else {
+			selectCommand = stkAppSsEntrySelectNext
+		}
+		// select first/next SS entry
+		resp, code, err := p.execute(selectCommand)
+		if err != nil {
+			return nil, err
+		}
+		//check if an entry was found
+		if code == ApduOk { //if found: decode, save data to map
+			tags, err := p.decode(resp)
+			if err != nil {
+				return nil, err
+			}
+			entryID, err := p.findTag(tags, 0xc4) //entry ID (mandatory)
+			if err != nil {
+				return nil, err
+			}
+			entryMap = append(entryMap, map[string]string{}) //add empty map for this entry
+			entryMap[currEntry]["entryID"] = string(entryID) //save to map
+
+			entryTitle, err := p.findTag(tags, 0xc0) //entry title (mandatory, but might be "")
+			if err != nil {
+				return nil, err
+			}
+			entryMap[currEntry]["entryTitle"] = string(entryTitle) //save to map
+			currEntry++
+		} else if code == ApduNotFound {
+			//we tried to  select next entry, but where already at the last one -> we're done
+			done = true
+		} else { //something unexpected was returned
+			return nil, fmt.Errorf("APDU error, response code was %x", code)
+		}
+	}
+	return entryMap, nil
 }
 
 //DeleteSSEntryID deletes an entry in the secure storage (SS) of the SIM using it's entry ID
