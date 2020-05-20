@@ -818,6 +818,10 @@ func (p *Protocol) Verify(name string, value []byte, protocol ProtocolType) (boo
 	if p.Debug {
 		log.Printf(">> verify with key \"%s\"", name)
 	}
+	//check if data is empty
+	if len(value) < 1 {
+		return false, fmt.Errorf("verify failed: no data to verify")
+	}
 	args, err := p.encode([]Tag{
 		{0xc4, []byte(name)},
 		{0xd0, []byte{0x21}},
