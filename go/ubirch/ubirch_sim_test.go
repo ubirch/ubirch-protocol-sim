@@ -38,6 +38,7 @@ const (
 	lenPubkeyECDSA    = 64
 	lenPrivkeyECDSA   = 32
 	lenSignatureECDSA = 64
+	lenUUID           = 16
 )
 
 ////Default Values////
@@ -551,11 +552,36 @@ func TestSim_GetCertificate(t *testing.T) {
 	//todo currently failing because of reasons, I have to discuss with Micha
 }
 
+// todo WIP
+func TestSim_GetAllSSEntries(t *testing.T) {
+	asserter := assert.New(t)
+	requirer := require.New(t)
+
+	conf, err := helperLoadConfig()
+	requirer.NoErrorf(err, "failed to load configuration")
+	sim, err := helperSimInterface(conf.Debug)
+	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
+	defer sim.Close()
+
+	// select Application APDU
+	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
+	// Verify PIN APDU
+	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+
+	m, err := sim.GetAllSSEntries()
+	asserter.NoErrorf(err, "failed to get all SS Entries")
+	asserter.NotNilf(m, "map of all Entries should not be 'Nil'")
+	for key, value := range m {
+		fmt.Println("Key:", key, "Value:", value)
+	}
+}
+
 func TestProtocol_DeleteAll(t *testing.T) {
 
 }
 
-func TestProtocol_GenerateCSR(t *testing.T) {
+// todo, WIP
+func TestSim_GenerateCSR(t *testing.T) {
 	asserter := assert.New(t)
 	requirer := require.New(t)
 
@@ -616,12 +642,74 @@ func TestSim_GetKey(t *testing.T) {
 	asserter.Nilf(pubKey, "private key should be 'Nil'")
 }
 
-func TestProtocol_GetUUID(t *testing.T) {
+// TestSim_GetUUID test getting the UUID for a given name
+// 		test empty name
+// 		test unknown name
+// 		test getting the preconfigured key and check the length
+// 		test reading the uuid with private key name and check the length
+func TestSim_GetUUID(t *testing.T) {
+	const unknownName = "unknown"
+	asserter := assert.New(t)
+	requirer := require.New(t)
 
+	conf, err := helperLoadConfig()
+	requirer.NoErrorf(err, "failed to load configuration")
+	sim, err := helperSimInterface(conf.Debug)
+	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
+	defer sim.Close()
+
+	// select Application APDU
+	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
+	// Verify PIN APDU
+	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+
+	// test empty name
+	uid, err := sim.GetUUID("")
+	asserter.Errorf(err, "failed to return error for getting empty uuid from SIM")
+	asserter.Equalf(uuid.Nil, uid, "public key should be 'Nil'")
+	// test unknown name
+	uid, err = sim.GetUUID(unknownName)
+	asserter.Errorf(err, "failed to return error for getting unknown uuid from SIM")
+	asserter.Equalf(uuid.Nil, uid, "uuid should be 'Nil'")
+	// test getting the preconfigured key and check the length
+	uid, err = sim.GetUUID(SIMProxyName)
+	asserter.NoErrorf(err, "failed to read the uuid from SIM")
+	asserter.Lenf(uid, lenUUID, "uuid has not the right length")
+	// test reading the uuid with private key name and check the length
+	privateKeyName := "_" + SIMProxyName
+	uid, err = sim.GetUUID(privateKeyName)
+	asserter.NoErrorf(err, "failed to read the uuid from SIM")
+	asserter.Lenf(uid, lenUUID, "uuid has not the right length")
 }
 
-func TestProtocol_GetVerificationKey(t *testing.T) {
+// todo: WIP, fails for uuid.nil, because I stored a uuid.nil,
+// todo: also fails for "ukey" because then it is the private key
+func TestSim_GetVerificationKey(t *testing.T) {
+	const unknownName = "unknown"
+	asserter := assert.New(t)
+	requirer := require.New(t)
 
+	conf, err := helperLoadConfig()
+	requirer.NoErrorf(err, "failed to load configuration")
+	sim, err := helperSimInterface(conf.Debug)
+	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
+	defer sim.Close()
+
+	// select Application APDU
+	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
+	// Verify PIN APDU
+	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+
+	vKey, err := sim.GetVerificationKey(uuid.Nil)
+	asserter.Errorf(err, "failed to return error for 'nil'UUID")
+	asserter.Nilf(vKey, "verification key should be empty")
+
+	// test getting the preconfigured key and check the length
+	uid, err := sim.GetUUID(SIMProxyName)
+	requirer.NoErrorf(err, "failed to read the uuid from SIM")
+	vKey, err = sim.GetVerificationKey(uid)
+	asserter.Errorf(err, "failed to get the verification key for preconfigured UUID")
+	asserter.NotNilf(vKey, "verification key should not be empty")
 }
 
 func TestProtocol_PutKey(t *testing.T) {
