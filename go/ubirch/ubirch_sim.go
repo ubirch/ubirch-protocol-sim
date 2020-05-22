@@ -244,11 +244,10 @@ func (p *Protocol) Init(pin string) error {
 	// sometimes the modem is not ready yet, so we try again, if it fails
 	for i := 0; i < 3; i++ {
 		err = p.selectApplet()
-		if err != nil {
-			time.Sleep(10 * time.Millisecond)
-			continue
+		if err == nil {
+			break
 		}
-		break
+		time.Sleep(10 * time.Millisecond)
 	}
 	if err != nil {
 		return err
