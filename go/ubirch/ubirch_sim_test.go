@@ -492,7 +492,7 @@ func TestSim_GenerateSecureRandom(t *testing.T) {
 }
 
 // todo, WIP
-func TestProtocol_GetCertificate(t *testing.T) {
+func TestSim_GetCertificate(t *testing.T) {
 	const testName = "unknownName"
 
 	asserter := assert.New(t)
@@ -556,11 +556,64 @@ func TestProtocol_DeleteAll(t *testing.T) {
 }
 
 func TestProtocol_GenerateCSR(t *testing.T) {
+	asserter := assert.New(t)
+	requirer := require.New(t)
 
+	conf, err := helperLoadConfig()
+	requirer.NoErrorf(err, "failed to load configuration")
+	sim, err := helperSimInterface(conf.Debug)
+	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
+	defer sim.Close()
+
+	// select Application APDU
+	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
+	// Verify PIN APDU
+	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+
+	csr, err := sim.GenerateCSR("ukey", uuid.Nil)
+	asserter.NoErrorf(err, "failed to generate CSR")
+	asserter.NotNilf(csr, "CSR should not be Nil")
+	log.Printf(hex.EncodeToString(csr))
 }
 
-func TestProtocol_GetKey(t *testing.T) {
+// TestSim_GetKey test the command to get a valid key from the SIM card
+// 		test empty name, should fail
+// 		test unknown name, should fail
+// 		test getting the preconfigured key and check the length, should pass
+// 		test reading the private Key, should fail
+func TestSim_GetKey(t *testing.T) {
+	const unknownName = "unknown"
+	asserter := assert.New(t)
+	requirer := require.New(t)
 
+	conf, err := helperLoadConfig()
+	requirer.NoErrorf(err, "failed to load configuration")
+	sim, err := helperSimInterface(conf.Debug)
+	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
+	defer sim.Close()
+
+	// select Application APDU
+	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
+	// Verify PIN APDU
+	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+
+	// test empty name
+	pubKey, err := sim.GetKey("")
+	asserter.Errorf(err, "failed to return error for getting empty public Key from SIM")
+	asserter.Nilf(pubKey, "public key should be 'Nil'")
+	// test unknown name
+	pubKey, err = sim.GetKey(unknownName)
+	asserter.Errorf(err, "failed to return error for getting unknown public Key from SIM")
+	asserter.Nilf(pubKey, "public key should be 'Nil'")
+	// test getting the preconfigured key and check the length
+	pubKey, err = sim.GetKey(SIMProxyName)
+	asserter.NoErrorf(err, "failed to read the public Key from SIM")
+	asserter.Lenf(pubKey, lenPubkeyECDSA, "public key has not the right length")
+	// test reading the private Key
+	privateKeyName := "_" + SIMProxyName
+	pubKey, err = sim.GetKey(privateKeyName)
+	asserter.Errorf(err, "failed to return error for getting private Key from SIM")
+	asserter.Nilf(pubKey, "private key should be 'Nil'")
 }
 
 func TestProtocol_GetUUID(t *testing.T) {
