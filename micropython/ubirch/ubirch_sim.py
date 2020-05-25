@@ -122,6 +122,8 @@ class SimProtocol:
         then selects the SIM application.
 
         The LTE functionality must be enabled upfront.
+
+        :param func_lvl: the desired functionality level of modem (1: full, 4: disable modem both transmit and receive RF circuits)
         """
         self.lte = lte
         self.DEBUG = at_debug
@@ -133,7 +135,7 @@ class SimProtocol:
 
         # setup modem
         if self.DEBUG: print("\n>> setting up modem")
-        if not self._check_func_lvl(self.func_lvl) and not self._set_func_lvl(self.func_lvl):
+        if not self._check_func_lvl() and not self._set_func_lvl():
             self.lte.pppresume()
             raise Exception("setting up modem failed")
 
@@ -166,7 +168,7 @@ class SimProtocol:
 
         return False
 
-    def _check_func_lvl(self, func_lvl) -> bool:
+    def _check_func_lvl(self) -> bool:
         """
         Checks if modem is set to the desired level of functionality
         :param func_lvl: the desired functionality level (0: minimum, 1: full, 4: disable modem both transmit and receive RF circuits)
@@ -175,12 +177,15 @@ class SimProtocol:
         for _ in range(3):
             time.sleep(0.2)
             result = self._send_at_cmd("AT+CFUN?")
-            if result[-1] == 'OK' and result[-2] == '+CFUN: {}'.format(func_lvl):
-                return True
+            if result[-1] == 'OK':
+                if result[-2] == '+CFUN: {}'.format(self.func_lvl):
+                    return True
+                else:
+                    return False
 
         return False
 
-    def _set_func_lvl(self, func_lvl) -> bool:
+    def _set_func_lvl(self) -> bool:
         """
         Sets modem to the desired level of functionality
         :param func_lvl: the desired functionality level (0: minimum, 1: full, 4: disable modem both transmit and receive RF circuits)
@@ -188,8 +193,8 @@ class SimProtocol:
         """
         for _ in range(3):
             time.sleep(0.2)
-            result = self._send_at_cmd("AT+CFUN={}".format(func_lvl))
-            if result[-1] == 'OK' and self._check_func_lvl(func_lvl):
+            result = self._send_at_cmd("AT+CFUN={}".format(self.func_lvl))
+            if result[-1] == 'OK' and self._check_func_lvl():
                 return True
 
         return False
