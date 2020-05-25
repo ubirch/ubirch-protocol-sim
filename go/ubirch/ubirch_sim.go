@@ -432,7 +432,7 @@ func (p *Protocol) PutPubKey(name string, uid uuid.UUID, pubKey []byte) error {
 		return fmt.Errorf("pubkey is invalid: coordinates are not on curve")
 	}
 
-	//Workaround: the SIM expects the pubkey to start with 0x04 for some reason (undocumented behavior/bug)
+	//The SIM expects the pubkey in uncompressed SEC format, so it needs to start with 0x04, then X bytes, then Y bytes
 	pubKey = append([]byte{0x04}, pubKey...)
 
 	args, err := p.encode([]Tag{
@@ -506,7 +506,8 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 		return nil, err
 	}
 
-	// return the public key and remove the static 0xc4 from the beginning
+	// return the public key and remove the static 0x04 from the beginning
+	// the 0x04 is caused by the SIM returning the key in uncompressed SEC format, so it is 0x04, then X bytes, then Y bytes
 	return pubkey[1:], nil
 }
 
