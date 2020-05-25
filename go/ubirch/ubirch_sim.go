@@ -3,10 +3,12 @@ package ubirch
 // [1]: "../../SIGNiT Customer Manual v4.pdf"
 
 import (
+	"crypto/elliptic"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
+	"math/big"
 	"strconv"
 	"strings"
 	"time"
@@ -417,7 +419,17 @@ func (p *Protocol) PutPubKey(name string, uid uuid.UUID, pubKey []byte) error {
 	}
 
 	if len(pubKey) != nistp256PubkeyLength {
-		return fmt.Errorf("pub key has invalid length. got: %v, expected: %v", len(pubKey), nistp256PubkeyLength)
+		return fmt.Errorf("pubkey has invalid length. got: %v, expected: %v", len(pubKey), nistp256PubkeyLength)
+	}
+
+	//Verify that the pubkey is valid/on curve (workaround/prevention for the SIM card crashing/hanging if an invalid pubkey is set and later used for verify)
+	pubkeyX := new(big.Int)
+	pubkeyY := new(big.Int)
+	pubkeyX.SetBytes(pubKey[:nistp256XLength])
+	pubkeyY.SetBytes(pubKey[nistp256XLength:])
+	pubkeyvalid := elliptic.P256().IsOnCurve(pubkeyX, pubkeyY)
+	if !pubkeyvalid {
+		return fmt.Errorf("pubkey is invalid: coordinates are not on curve")
 	}
 
 	//Workaround: the SIM expects the pubkey to start with 0x04 for some reason (undocumented behavior/bug)
