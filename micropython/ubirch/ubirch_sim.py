@@ -68,6 +68,50 @@ APP_UBIRCH_SIGNED = 0x22
 APP_UBIRCH_CHAINED = 0x23
 
 
+def _encode_tag(tags: [(int, bytes or str)]) -> str:
+    """
+    Encode taged arguments for APDU commands.
+    :param tags: a list of tuples of the format (tag, data) where data may be bytes or a pre-encoded str
+    :return: a hex encoded string, for use with the APDU
+    """
+    r = ""
+    for (tag, data) in tags:
+        if isinstance(data, bytes):
+            # convert bytes into hex encoded string
+            data = binascii.hexlify(data).decode()
+
+        data_len = int(len(data) / 2)
+        if data_len > 0xff:
+            data_len = (0x82 << 16) | data_len
+
+        r += "{0:02X}{1:02X}{2}".format(tag, data_len, data)
+    return r
+
+
+def _decode_tag(encoded: bytes) -> [(int, bytes)]:
+    """
+    Decode APDU response data that contains tags.
+    :param encoded: the response data with tags to decode
+    :return: (tag, data)
+    """
+    decoded = []
+    idx = 0
+    while idx < len(encoded):
+        tag = encoded[idx]
+        data_len = int(encoded[idx + 1])
+        idx += 2
+        if data_len == 0x82:  # 0x82 indicates the length of the tag data being 2 bytes long
+            data_len = int(encoded[idx]) << 8 | int(encoded[idx + 1])
+            idx += 2
+        if len(encoded[idx:]) < data_len:
+            raise Exception("tag %02x has not enough data %d < %d".format(tag, len(encoded[idx:]), data_len))
+        endIdx = idx + data_len
+        data = encoded[idx:endIdx]
+        decoded.append(tuple((tag, data)))
+        idx = endIdx
+    return decoded
+
+
 class SimProtocol:
     MAX_AT_LENGTH = 110
 
@@ -86,19 +130,16 @@ class SimProtocol:
     def _init(self):
         if self.DEBUG: print("\n>> setting up modem")
         # wait until the modem is ready
-        i = 20
         cfun_cmd = "AT+CFUN?"
         self.lte.pppsuspend()
-        if self.DEBUG: print("++ " + cfun_cmd)
-        result = [k for k in self.lte.send_at_cmd(cfun_cmd).split('\r\n') if len(k.strip()) > 0]
-        if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
+        result = self._send_at_cmd(cfun_cmd)
+
+        i = 20
         while not ("+CFUN: 1" in result or "+CFUN: 4" in result):
             i -= 1
             if i > 0:
                 time.sleep(0.5)
-                if self.DEBUG: print("++ " + cfun_cmd)
-                result = [k for k in self.lte.send_at_cmd(cfun_cmd).split('\r\n') if len(k.strip()) > 0]
-                if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
+                result = self._send_at_cmd(cfun_cmd)
             else:
                 self.lte.pppresume()
                 raise Exception("setting up modem failed: {}".format(result))
@@ -126,47 +167,11 @@ class SimProtocol:
         (data, code) = self._execute(STK_APP_SELECT.format(APP_DF))
         return code
 
-    def _encode_tag(self, tags: [(int, bytes or str)]) -> str:
-        """
-        Encode taged arguments for APDU commands.
-        :param tags: a list of tuples of the format (tag, data) where data may be bytes or a pre-encoded str
-        :return: a hex encoded string, for use with the APDU
-        """
-        r = ""
-        for (tag, data) in tags:
-            if isinstance(data, bytes):
-                # convert bytes into hex encoded string
-                data = binascii.hexlify(data).decode()
-
-            data_len = int(len(data) / 2)
-            if data_len > 0xff:
-                data_len = (0x82 << 16) | data_len
-
-            r += "{0:02X}{1:02X}{2}".format(tag, data_len, data)
-        return r
-
-    def _decode_tag(self, encoded: bytes) -> [(int, bytes)]:
-        """
-        Decode APDU response data that contains tags.
-        :param encoded: the response data with tags to decode
-        :return: (tag, data)
-        """
-        decoded = []
-        idx = 0
-        while idx < len(encoded):
-            tag = encoded[idx]
-            data_len = int(encoded[idx + 1])
-            idx += 2
-            if data_len == 0x82:  # 0x82 indicates the length of the tag data being 2 bytes long
-                data_len = int(encoded[idx]) << 8 | int(encoded[idx + 1])
-                idx += 2
-            if len(encoded[idx:]) < data_len:
-                raise Exception("tag %02x has not enough data %d < %d".format(tag, len(encoded[idx:]), data_len))
-            endIdx = idx + data_len
-            data = encoded[idx:endIdx]
-            decoded.append(tuple((tag, data)))
-            idx = endIdx
-        return decoded
+    def _send_at_cmd(self, cmd):
+        if self.DEBUG: print("++ " + cmd)
+        result = [k for k in self.lte._send_at_cmd(cmd).split('\r\n') if len(k.strip()) > 0]
+        if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
+        return result
 
     def _execute(self, cmd: str) -> (bytes, str):
         """
@@ -175,9 +180,7 @@ class SimProtocol:
         :return: a tuple of (data, code)
         """
         at_cmd = 'AT+CSIM={},"{}"'.format(len(cmd), cmd.upper())
-        if self.DEBUG: print("++ " + at_cmd)
-        result = [k for k in self.lte.send_at_cmd(at_cmd).split('\r\n') if len(k.strip()) > 0]
-        if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
+        result = self._send_at_cmd(at_cmd)
 
         if result[-1] == 'OK':
             response = result[0][7:].split(',')[1]
@@ -228,7 +231,7 @@ class SimProtocol:
 
         (data, code) = self._get_response(code)
         if code == STK_OK and self.DEBUG:
-            print('found entry: ' + repr(self._decode_tag(data)))
+            print('found entry: ' + repr(_decode_tag(data)))
         return data, code
 
     def get_imsi(self) -> str:
@@ -238,12 +241,10 @@ class SimProtocol:
         if self.DEBUG: print("\n>> getting IMSI")
         IMSI_LEN = 15
         at_cmd = "AT+CIMI"
-        if self.DEBUG: print("++ " + at_cmd)
 
         self.lte.pppsuspend()
         for _ in range(3):
-            result = [k for k in self.lte.send_at_cmd(at_cmd).split('\r\n') if len(k.strip()) > 0]
-            if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
+            result = self._send_at_cmd(at_cmd)
 
             if result[-1] == 'OK' and len(result[0]) == IMSI_LEN:
                 self.lte.pppresume()
@@ -303,7 +304,7 @@ class SimProtocol:
         :return: the CSR bytes
         """
         if self.DEBUG: print("\n>> generating CSR for key with entry ID \"{}\"".format(entry_id))
-        cert_attr = self._encode_tag([
+        cert_attr = _encode_tag([
             (0xD4, "DE".encode()),
             (0xD5, "Berlin".encode()),
             (0xD6, "Berlin".encode()),
@@ -312,13 +313,13 @@ class SimProtocol:
             (0xD9, str(uuid).encode()),
             (0xDA, "info@ubirch.com".encode())
         ])
-        cert_args = self._encode_tag([
+        cert_args = _encode_tag([
             (0xD3, bytes([0x00])),
             (0xE7, cert_attr),
             (0xC2, bytes([0x0B, 0x01, 0x00])),
             (0xD0, bytes([0x21]))
         ])
-        args = self._encode_tag([
+        args = _encode_tag([
             (0xC4, entry_id.encode()),
             (0xC4, ("_" + entry_id).encode()),
             (0xE5, cert_args)
@@ -350,7 +351,7 @@ class SimProtocol:
             (data, code) = self._get_more_data(code, data, STK_APP_CERT_GET.format(1))
             if code == STK_OK:
                 self.lte.pppresume()
-                return [tag[1] for tag in self._decode_tag(data) if tag[0] == 0xc3][0]
+                return [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc3][0]
 
         self.lte.pppresume()
         raise Exception(code)
@@ -376,7 +377,7 @@ class SimProtocol:
         self.lte.pppresume()
         if code == STK_OK:
             # get the entry title
-            return [tag[1] for tag in self._decode_tag(data) if tag[0] == 0xc0][0]
+            return [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc0][0]
 
         raise Exception(code)
 
@@ -393,7 +394,7 @@ class SimProtocol:
         (data, code) = self._get_response(code)
         self.lte.pppresume()
         if code == STK_OK:
-            key_name = [tag[1] for tag in self._decode_tag(data) if tag[0] == 0xc4][0]
+            key_name = [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc4][0]
             # get the public key with that entry ID
             if self.DEBUG: print("found entry ID \"{}\"".format(key_name.decode()))
             return self.get_key(key_name.decode().lstrip("_"))
@@ -412,13 +413,13 @@ class SimProtocol:
         (data, code) = self._select_ss_entry(entry_id)
         if code == STK_OK:
             # get the key
-            args = self._encode_tag([(0xD0, bytes([0x00]))])
+            args = _encode_tag([(0xD0, bytes([0x00]))])
             (data, code) = self._execute(STK_APP_KEY_GET.format(int(len(args) / 2), args))
             (data, code) = self._get_response(code)
             if code == STK_OK:
                 self.lte.pppresume()
                 # remove the fixed 0x04 prefix from the key entry_id
-                return [tag[1][1:] for tag in self._decode_tag(data) if tag[0] == 0xc3][0]
+                return [tag[1][1:] for tag in _decode_tag(data) if tag[0] == 0xc3][0]
 
         self.lte.pppresume()
         raise Exception(code)
@@ -438,13 +439,13 @@ class SimProtocol:
 
         # prefix private key entry id with a '_'
         # SS entries must have unique entry IDs
-        args = self._encode_tag([(0xC4, entry_id.encode()),
-                                 (0xC0, uuid.hex),
-                                 (0xC1, bytes([0x03])),
-                                 (0xC4, ("_" + entry_id).encode()),
-                                 (0xC0, uuid.hex),
-                                 (0xC1, bytes([0x03]))
-                                 ])
+        args = _encode_tag([(0xC4, entry_id.encode()),
+                            (0xC0, uuid.hex),
+                            (0xC1, bytes([0x03])),
+                            (0xC4, ("_" + entry_id).encode()),
+                            (0xC0, uuid.hex),
+                            (0xC1, bytes([0x03]))
+                            ])
         (data, code) = self._execute(STK_APP_KEY_GENERATE.format(int(len(args) / 2), args))
         self.lte.pppresume()
         if code != STK_OK:
@@ -462,7 +463,7 @@ class SimProtocol:
         :return: the signed message or throws an exceptions if failed
         """
         self.lte.pppsuspend()
-        args = self._encode_tag([(0xC4, ('_' + entry_id).encode()), (0xD0, bytes([0x21]))])
+        args = _encode_tag([(0xC4, ('_' + entry_id).encode()), (0xD0, bytes([0x21]))])
         if hash_before_sign:
             if self.DEBUG: print(">> data will be hashed by SIM before singing")
             protocol_version |= 0x40  # set flag for automatic hashing
@@ -499,7 +500,7 @@ class SimProtocol:
         :return: the verification response or throws an exceptions if failed
         """
         self.lte.pppsuspend()
-        args = self._encode_tag([(0xC4, entry_id.encode()), (0xD0, bytes([0x21]))])
+        args = _encode_tag([(0xC4, entry_id.encode()), (0xD0, bytes([0x21]))])
         if self.DEBUG: print(">> verify init")
         (data, code) = self._execute(STK_APP_VERIFY_INIT.format(protocol_version, int(len(args) / 2), args))
         if code == STK_OK:
