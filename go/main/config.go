@@ -35,9 +35,9 @@ func (c *Config) load(fn string) error {
 		return err
 	}
 
-	if c.Password == "" {
-		log.Printf("password not set in config. will skip backend communication.")
-	}
+	//if c.Password == "" {
+	//	log.Printf("password not set in config. will skip backend communication.")
+	//}
 
 	if c.Env == "" {
 		c.Env = "prod"
