@@ -130,19 +130,19 @@ class SimProtocol:
     def _init(self):
         if self.DEBUG: print("\n>> setting up modem")
         # wait until the modem is ready
-        cfun_cmd = "AT+CFUN?"
+        check_func_lvl_cmd = "AT+CFUN?"
+        result = []
         self.lte.pppsuspend()
-        result = self._send_at_cmd(cfun_cmd)
 
-        i = 20
-        while not ("+CFUN: 1" in result or "+CFUN: 4" in result):
-            i -= 1
-            if i > 0:
-                time.sleep(0.5)
-                result = self._send_at_cmd(cfun_cmd)
-            else:
-                self.lte.pppresume()
-                raise Exception("setting up modem failed: {}".format(result))
+        for _ in range(5):
+            result = self._send_at_cmd(check_func_lvl_cmd)
+            if "+CFUN: 1" in result or "+CFUN: 4" in result:
+                break
+            time.sleep(0.5)
+
+        if not ("+CFUN: 1" in result or "+CFUN: 4" in result):
+            self.lte.pppresume()
+            raise Exception("setting up modem failed: {}".format(result))
 
         # select the SignApp
         if self.DEBUG: print("\n>> selecting SIM application")
@@ -169,7 +169,7 @@ class SimProtocol:
 
     def _send_at_cmd(self, cmd):
         if self.DEBUG: print("++ " + cmd)
-        result = [k for k in self.lte._send_at_cmd(cmd).split('\r\n') if len(k.strip()) > 0]
+        result = [k for k in self.lte.send_at_cmd(cmd).split('\r\n') if len(k.strip()) > 0]
         if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
         return result
 
@@ -240,11 +240,11 @@ class SimProtocol:
         """
         if self.DEBUG: print("\n>> getting IMSI")
         IMSI_LEN = 15
-        at_cmd = "AT+CIMI"
+        get_imsi_cmd = "AT+CIMI"
 
         self.lte.pppsuspend()
         for _ in range(3):
-            result = self._send_at_cmd(at_cmd)
+            result = self._send_at_cmd(get_imsi_cmd)
 
             if result[-1] == 'OK' and len(result[0]) == IMSI_LEN:
                 self.lte.pppresume()
