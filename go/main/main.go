@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	log.Println("Register SIM public key at the UBIRCH identity sevice")
+	log.Println("Register SIM public key at the UBIRCH identity service")
 	if len(os.Args) < 3 {
 		log.Println("usage: main <port> <baudrate>")
 		os.Exit(0)
