@@ -875,18 +875,22 @@ func (p *Protocol) Sign(name string, value []byte, protocol ProtocolType, hashBe
 	return hex.DecodeString(data)
 }
 
-// Execute a verify operation using the public key with the given name. Depending on
+// Execute a verify operation on an UPP using the public key with the given name. Depending on
 // the protocol parameter the verify operation checks a signed or chained ubirch-protocol
-// packet (UPP). If the protocol parameter is 0 a normal verify operation on the
-// pure value data is executed.
+// packet (UPP).
 // Returns true or false.
-func (p *Protocol) Verify(name string, value []byte, protocol ProtocolType) (bool, error) {
+func (p *Protocol) Verify(name string, upp []byte, protocol ProtocolType) (bool, error) {
 	if p.Debug {
 		log.Printf(">> verify with key \"%s\"", name)
 	}
 	//check if data is empty
-	if len(value) < 1 {
+	if len(upp) < 1 {
 		return false, fmt.Errorf("verify failed: no data to verify")
+	}
+	//check if protocol type is of the supported types
+	//(direct data/signature verification (=non-UPP data+sig) is not supported by this function)
+	if protocol != Signed && protocol != Chained {
+		return false, fmt.Errorf("verify failed: unsupported UPP type")
 	}
 	args, err := p.encode([]Tag{
 		{0xc4, []byte(name)},
@@ -907,7 +911,7 @@ func (p *Protocol) Verify(name string, value []byte, protocol ProtocolType) (boo
 		return false, fmt.Errorf("verify init failed: APDU error: %x", code)
 	}
 
-	data := hex.EncodeToString(value)
+	data := hex.EncodeToString(upp)
 	for finalBit := 0; len(data) > 0; {
 		end := 128
 		if len(data) <= 128 {
