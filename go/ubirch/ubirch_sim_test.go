@@ -795,8 +795,11 @@ func TestProtocol_UpdateCertificate(t *testing.T) {
 }
 
 // TestSIM_Verify verifies UPP packages for different configurations.
-//		Tests, which shall pass with no error and correct signature, have the attribute signatureVerifiable = true, throwsError =false
-//		Tests, which shall return an error, have the attribute signatureVerifiable = false
+//		Tests, which have correct UPPs with correct signature, have the attribute signatureVerifiable = true, throwsError =false
+//		Tests, which have only incorrect signature, but everything else for verification is correct have signatureVerifiable = false, throwsError =false
+//		Tests where something is fundamentally wrong so that verification itself can't be performed have signatureVerifiable = false, throwsError =true
+//		The case signatureVerifiable = true, throwsError =true should never occur
+
 func TestSim_Verify(t *testing.T) {
 	var tests = []struct {
 		testName            string
