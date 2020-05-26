@@ -51,10 +51,11 @@ const (
 	Chained ProtocolType = 0x23 // Chained UBIRCH protocol package
 
 	// APDU response codes
-	ApduOk        = uint16(0x9000)
-	ApduMoreData  = uint16(0x6310)
-	ApduNotFound  = uint16(0x6A88)
-	ApduWrongData = uint16(0x6A80)
+	ApduOk                 = uint16(0x9000)
+	ApduMoreData           = uint16(0x6310)
+	ApduNotFound           = uint16(0x6A88)
+	ApduWrongData          = uint16(0x6A80)
+	ApduIncorrectSignature = uint16(0x6988)
 
 	// Application Identifier
 	stkAppDef = "D2760001180002FF34108389C0028B02"
@@ -926,6 +927,9 @@ func (p *Protocol) Verify(name string, upp []byte, protocol ProtocolType) (bool,
 		_, code, err = p.execute(stkAppVerifyFinal, finalBit, len(chunk)/2, chunk)
 		if err != nil {
 			return false, fmt.Errorf("verify update/final failed: %v", err)
+		}
+		if code == ApduIncorrectSignature { //no errors occured, but signature is incorrect
+			return false, nil
 		}
 		if code != ApduOk {
 			return false, fmt.Errorf("verify update/final failed: APDU error: %x", code)
