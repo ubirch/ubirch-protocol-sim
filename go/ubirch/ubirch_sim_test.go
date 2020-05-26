@@ -398,6 +398,10 @@ func TestSim_GenerateKeyPair(t *testing.T) {
 	asserter.NoErrorf(sim.GenerateKey(testName, uuid.MustParse(testUUID)), "failed to generate Key Pair")
 	// test Generate and replace Key Pair
 	asserter.NoErrorf(sim.GenerateKey(testName, uuid.Nil), "failed to generate Key Pair") // TODO, do we need to check for nil UUIDs?
+
+	//delete generated keypair when we're done
+	sim.DeleteSSEntryID(testName)
+	sim.DeleteSSEntryID("_" + testName)
 }
 
 // *WARNING* careful with this function, it can block the SIM card,
