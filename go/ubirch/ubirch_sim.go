@@ -512,6 +512,10 @@ func (p *Protocol) PutPubKey(name string, uid uuid.UUID, pubKey []byte) error {
 		return err
 	}
 
+	if uid == uuid.Nil {
+		return fmt.Errorf("UUID for pubkey is nil")
+	}
+
 	if len(pubKey) != nistp256PubkeyLength {
 		return fmt.Errorf("pubkey has invalid length. got: %v, expected: %v", len(pubKey), nistp256PubkeyLength)
 	}
