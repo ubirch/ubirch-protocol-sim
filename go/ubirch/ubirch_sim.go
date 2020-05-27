@@ -275,6 +275,50 @@ func (p *Protocol) Init(pin string) error {
 	return p.authenticate(pin)
 }
 
+// selectSSEntryID selects an entry in the secure storage using the entry ID, see [1] 2.1.4
+// returns the entry title (usually UUID) sent by the SIM as response to the command as well as the APDU code and error condition
+//also checks if selected entry ID is the same as in the request
+func (p *Protocol) selectSSEntryID(entryID string) ([]byte, uint16, error) {
+	if p.Debug {
+		log.Printf(">> selecting SS entry \"%s\"", entryID)
+	}
+	// select SS entry
+	_, code, err := p.execute(stkAppSsEntrySelect, len(entryID), hex.EncodeToString([]byte(entryID)))
+	if err != nil {
+		return nil, code, err
+	}
+	if code == ApduNotFound {
+		return nil, code, fmt.Errorf("entry \"%s\" not found", entryID)
+	}
+	data, code, err := p.response(code)
+	if err != nil {
+		return nil, code, err
+	}
+	if code != ApduOk {
+		return nil, code, fmt.Errorf("APDU error code: %x, selecting SS entry (%s) failed", code, entryID)
+	}
+
+	// get entry title and also check returned entry ID for consistency with request
+	tags, err := p.decode(data)
+	if err != nil {
+		return nil, code, err
+	}
+	entryIDreturned, err := p.findTag(tags, byte(0xc4))
+	if err != nil {
+		return nil, code, err
+	}
+	if string(entryIDreturned) != entryID {
+		return nil, code, fmt.Errorf("selected entry ID is not the same as the requested entry ID: %v != %v", string(entryIDreturned), entryID)
+	}
+
+	entryTitle, err := p.findTag(tags, byte(0xc0))
+	if err != nil {
+		return nil, code, err
+	}
+
+	return entryTitle, code, nil
+}
+
 // GetAllSSEntries gets IDs and titles of all SS entries present on the SIM, this includes keys and certificates
 func (p *Protocol) GetAllSSEntries() ([]map[string]string, error) {
 	if p.Debug {
