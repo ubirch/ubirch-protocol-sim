@@ -739,17 +739,17 @@ func TestSim_Sign_RandomInput(t *testing.T) {
 	sim, err := helperSimInterface(conf.Debug)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
-	//get the pubkey from the SIM
-	//TODO: Make sure we have a key generated?
+
+	//get the pubkey from the SIM. we use the standard key, which should be on every card
 	simPubkeyBytes, err := sim.GetKey(SIMProxyName)
 	requirer.NoError(err, "Could not get pubkey from SIM")
 	requirer.NotZero(len(simPubkeyBytes), "Returned pubkey is empty")
 	simPubkey := hex.EncodeToString(simPubkeyBytes)
 
-	//workaround for missing sim.getLastSignature(): create UPP and save signature
-	upp, err := sim.Sign(SIMProxyName, []byte("somedata"), Chained, true)
-	requirer.NoError(err, "Could not create UPP")
-	lastChainSig := hex.EncodeToString(upp[len(upp)-lenSignatureECDSA:])
+	//Get last signature from SIM
+	lastSigSIM, err := sim.GetLastSignature()
+	requirer.NoError(err, "Could not get last signature from SIM")
+	lastChainSig := hex.EncodeToString(lastSigSIM)
 
 	//test the random input
 	for i := 0; i < numberOfTests; i++ {
@@ -769,6 +769,14 @@ func TestSim_Sign_RandomInput(t *testing.T) {
 		expectedPayloadString := hex.EncodeToString(inputDataHash[:])
 		err = helperCheckSignedUPP(t, createdSignedUpp, expectedPayloadString, simPubkey)
 		asserter.NoError(err, "UPP check failed for Signed type UPP with input data %v", hex.EncodeToString(inputData))
+
+		//Workaround for SIM bug (UP-1765): we need to get signature again, because the SIM will use the last *signed* type
+		//UPP signature for the 'last signature' field of *chained* type UPPs. (Creating a signed UPP breaks the chained UPP chain)
+		//When this is fixed this section can simply be removed from the test
+		lastSigSIM, err = sim.GetLastSignature()
+		requirer.NoError(err, "Could not get last signature from SIM")
+		lastChainSig = hex.EncodeToString(lastSigSIM)
+		//End of UP-1765 workaround
 
 		//Create multiple chained UPPs
 		t.Log("Creating 'chained' UPPs")
