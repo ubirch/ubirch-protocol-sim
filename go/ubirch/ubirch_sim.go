@@ -4,6 +4,7 @@ package ubirch
 
 import (
 	"crypto/elliptic"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -65,14 +66,16 @@ const (
 	stkAuthPin     = "00200000%02X%s" // authenticate with pin ([1], 2.1.2)
 
 	// Generic app commands
-	stkAppSelect             = "00A4040010%s"   // APDU Select Application ([1], 2.1.1)
-	stkAppRandom             = "80B900%02X00"   // APDU Generate Secure Random ([1], 2.1.3)
-	stkAppSsEntrySelect      = "80A50000%02X%s" // APDU Select SS Entry ([1], 2.1.4)
-	stkAppSsEntrySelectFirst = "80A5010000"     // APDU Select First SS Entry ([1], 2.1.4)
-	stkAppSsEntrySelectNext  = "80A5020000"     // APDU Select Next SS Entry ([1], 2.1.4)
-	stkAppDeleteAll          = "80E50000"       // APDU Delete All SS Entries
-	stkAppSsDeleteEntryID    = "80E40000%02X%s" // APDU Delete SS Entry ([1], 2.1.5)
-	stkAppSsEntryIdGet       = "80B10000%02X%s" // APDU Get SS Entry ID
+	stkAppSelect              = "00A4040010%s"   // APDU Select Application ([1], 2.1.1)
+	stkAppRandom              = "80B900%02X00"   // APDU Generate Secure Random ([1], 2.1.3)
+	stkAppSsEntrySelect       = "80A50000%02X%s" // APDU Select SS Entry ([1], 2.1.4)
+	stkAppSsEntrySelectFirst  = "80A5010000"     // APDU Select First SS Entry ([1], 2.1.4)
+	stkAppSsEntrySelectNext   = "80A5020000"     // APDU Select Next SS Entry ([1], 2.1.4)
+	stkAppSsEntryGetSize      = "80CA020000"     // APDU Get SS Entry (Get Size)  ( TLSAuthApp Manual 4.1.4)
+	stkAppSsEntryGetFirstPart = "80CA000000"     // APDU Get SS Entry (Get first (or only) part)  ( TLSAuthApp Manual 4.1.4)
+	stkAppDeleteAll           = "80E50000"       // APDU Delete All SS Entries
+	stkAppSsDeleteEntryID     = "80E40000%02X%s" // APDU Delete SS Entry ([1], 2.1.5)
+	stkAppSsEntryIdGet        = "80B10000%02X%s" // APDU Get SS Entry ID
 
 	// Ubirch specific commands
 	stkAppKeyGenerate = "80B28000%02X%s"   // APDU Generate an ECC Key Pair ([1], 2.1.7)
@@ -318,6 +321,52 @@ func (p *Protocol) selectSSEntryID(entryID string) ([]byte, uint16, error) {
 	}
 
 	return entryTitle, code, nil
+}
+
+//GetLastSignature reads the SS entry 'LastSign SSEntry' which contains the signature of the
+//last UPP created on the SIM. This entry is sued both for chained and signed packets see manual TLSAuthApp 3.4.1
+func (p *Protocol) GetLastSignature() ([]byte, error) {
+	if p.Debug {
+		log.Printf(">> get last signature")
+	}
+	//Select the entry
+	_, _, err := p.selectSSEntryID("LastSign SSEntry")
+	if err != nil {
+		return nil, err
+	}
+	//check size is as expected (we need to make sure of this also because we rely on it being short enough to get in  a single response)
+	sizeHex, code, err := p.execute(stkAppSsEntryGetSize)
+	if err != nil {
+		return nil, err
+	}
+	if code != ApduOk {
+		return nil, fmt.Errorf("APDU error: %x, get last signature size failed", code)
+	}
+	sizeBytes, err := hex.DecodeString(sizeHex)
+	if err != nil {
+		return nil, fmt.Errorf("could not decode received signature size")
+	}
+	size := binary.BigEndian.Uint16(sizeBytes)
+	if size != nistp256SignatureLength {
+		return nil, fmt.Errorf("unexpected length of signature entry: %v bytes", size)
+	}
+	//retrieve signature data, we rely on the signature being short enough to fit in one response
+	signatureHex, code, err := p.execute(stkAppSsEntryGetFirstPart)
+	if err != nil {
+		return nil, err
+	}
+	if code != ApduOk {
+		return nil, fmt.Errorf("APDU error: %x, get last signature data failed", code)
+	}
+	//decode signature
+	signatureBytes, err := hex.DecodeString(signatureHex)
+	if err != nil {
+		return nil, fmt.Errorf("could not decode received signature bytes")
+	}
+	if len(signatureBytes) != nistp256SignatureLength {
+		return nil, fmt.Errorf("unexpected length of signature after decoding: %v bytes", len(signatureBytes))
+	}
+	return signatureBytes, nil
 }
 
 // GetAllSSEntries gets IDs and titles of all SS entries present on the SIM, this includes keys and certificates
