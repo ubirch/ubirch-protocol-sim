@@ -716,8 +716,119 @@ func TestSim_GetVerificationKey(t *testing.T) {
 	asserter.NotNilf(vKey, "verification key should not be empty")
 }
 
-func TestProtocol_PutKey(t *testing.T) {
+//TestSIM_PutPubKey test setting a public key on the SIM, to see which tests are run see the 'tests' struct
+//the key is retrived from the card and compared to what was sent unless the test is a test which must fail/error
+func TestSIM_PutPubKey(t *testing.T) {
+	//table of tests to run
+	var tests = []struct {
+		testName    string
+		pubkeyName  string
+		UUID        uuid.UUID
+		pubKey      string
+		throwsError bool
+	}{
+		{
+			testName:    "defaultPubkeydefaultUUID",
+			pubkeyName:  defaultName,
+			UUID:        uuid.MustParse(defaultUUID),
+			pubKey:      defaultPub,
+			throwsError: false,
+		},
+		{
+			testName:    "specificPubkey",
+			pubkeyName:  defaultName,
+			UUID:        uuid.MustParse(defaultUUID),
+			pubKey:      "1e42ec570c4383eeaf58671cb473c577409f3e3e8e796091558bdaea238a1a255a74a5305c5f0a6fb635c71e5dadad6c494adb918818127ab8afeeb7fba4aba1",
+			throwsError: false,
+		},
+		{
+			testName:    "pubkeyTooLong",
+			pubkeyName:  defaultName,
+			UUID:        uuid.MustParse(defaultUUID),
+			pubKey:      hex.EncodeToString(make([]byte, nistp256PubkeyLength+1)),
+			throwsError: true,
+		},
+		{
+			testName:    "pubkeyTooShort",
+			pubkeyName:  defaultName,
+			UUID:        uuid.MustParse(defaultUUID),
+			pubKey:      hex.EncodeToString(make([]byte, nistp256PubkeyLength-1)),
+			throwsError: true,
+		},
+		{
+			testName:    "pubkeyEmpty",
+			pubkeyName:  defaultName,
+			UUID:        uuid.MustParse(defaultUUID),
+			pubKey:      "",
+			throwsError: true,
+		},
+		{
+			testName:    "nameEmpty",
+			pubkeyName:  "",
+			UUID:        uuid.MustParse(defaultUUID),
+			pubKey:      defaultPub,
+			throwsError: true,
+		},
+		{
+			testName:    "uuidNil",
+			pubkeyName:  defaultName,
+			UUID:        uuid.Nil,
+			pubKey:      defaultPub,
+			throwsError: true,
+		},
+		{
+			testName:    "pubkeyInvalidNotOnCurve",
+			pubkeyName:  defaultName,
+			UUID:        uuid.MustParse(defaultUUID),
+			pubKey:      "0042ec570c4383eeaf58671cb473c577409f3e3e8e796091558bdaea238a1a255a74a5305c5f0a6fb635c71e5dadad6c494adb918818127ab8afeeb7fba4aba1",
+			throwsError: true,
+		},
+	}
 
+	//initialize config/sim card
+	conf, err := helperLoadConfig()
+	require.NoErrorf(t, err, "failed to load configuration")
+	sim, err := helperSimInterface(conf.Debug)
+	require.NoErrorf(t, err, "failed to initialize the Serial connection to SIM")
+	defer sim.Close()
+
+	// select Application APDU
+	require.NoErrorf(t, sim.selectApplet(), "failed to select the applet")
+	// Verify PIN APDU
+	require.NoErrorf(t, sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+
+	//Iterate over all tests
+	for _, currTest := range tests {
+		t.Run(currTest.testName, func(t *testing.T) {
+			requirer := require.New(t)
+			asserter := assert.New(t)
+
+			//Parse the test parameters
+			currPubkey, err := hex.DecodeString(currTest.pubKey)
+			requirer.NoError(err, "could not parse pubkey string for test: %v", currTest.pubKey)
+
+			// Test setting the pubkey (and make sure we clean it up when we're done using 'defer')
+			setErr := sim.PutPubKey(currTest.pubkeyName, currTest.UUID, currPubkey)
+			//if creation was succesfull, make sure we clean up the key later
+			if setErr == nil {
+				defer sim.DeleteSSEntryID(currTest.pubkeyName)
+			}
+
+			// check test outcome vs expectation
+			if currTest.throwsError == true { //test must fail
+				asserter.Errorf(setErr, "PutPubKey() succeeded when it should have failed")
+			} else { //test must succeed
+				//Check if error occured
+				asserter.NoErrorf(setErr, "PutPubKey() failed")
+				//if setting was succesfull, check the key on the SIM
+				if setErr == nil {
+					retrievedPubBytes, getErr := sim.GetKey(currTest.pubkeyName)
+					asserter.NoErrorf(getErr, "reading the pubkey for checking failed")
+					asserter.Equal(currPubkey, retrievedPubBytes, "pubkey on card is not what was set")
+				}
+			}
+		})
+	}
 }
 
 //TestSim_Sign_RandomInput tests if sim.Sign can correctly create UPPs
