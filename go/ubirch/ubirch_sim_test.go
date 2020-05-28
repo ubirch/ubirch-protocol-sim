@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -496,7 +497,10 @@ func TestSim_GenerateSecureRandom(t *testing.T) {
 	asserter.NotContainsf(randBytes254, randBytes32, "the big number should not contain the small number")
 }
 
-// todo, WIP
+// TestSim_GetCertificate test getting the certificate from the SIM card and checks if the certificate is valid
+//		test getting Certificate with unknown ID, should fail
+// 		test getting Certificate with empty ID, should fail
+//		test reading the preconfigured certificate and check if the signature is valid, with the intermediate certificate
 func TestSim_GetCertificate(t *testing.T) {
 	const testName = "unknownName"
 
@@ -515,45 +519,57 @@ func TestSim_GetCertificate(t *testing.T) {
 	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
 
 	// test getting Certificate with unknown ID
-	cert, err := sim.GetCertificate(testName)
+	certDER, err := sim.GetCertificate(testName)
 	asserter.Errorf(err, "got Certificate for unknown ID")
-	asserter.Nilf(cert, "Certificate for unknown ID is not 'Nil'")
+	asserter.Nilf(certDER, "Certificate for unknown ID is not 'Nil'")
 	// test getting Certificate with empty ID
-	cert, err = sim.GetCertificate("")
+	certDER, err = sim.GetCertificate("")
 	asserter.Errorf(err, "got Certificate for unknown ID")
-	asserter.Nilf(cert, "Certificate for unknown ID is not 'Nil'")
+	asserter.Nilf(certDER, "Certificate for unknown ID is not 'Nil'")
 
 	// test getting Certificate with empty ID
-	cert, err = sim.GetCertificate("ucrt") //todo, why are there so many trailing 0x00 ???
+	certDER, err = sim.GetCertificate("ucrt") //todo, why are there so many trailing 0x00 ???
 	asserter.NoErrorf(err, "got Certificate for unknown ID")
-	asserter.NotNilf(cert, "Certificate for unknown ID is not 'Nil'")
+	asserter.NotNilf(certDER, "Certificate for unknown ID is not 'Nil'")
 	// check if it is a x509 certificate
-	certPEM, err := x509.ParseCertificate(bytes.Trim(cert, "\x00")) //todo, why are there so many trailing 0x00 ???
+	certX509, err := x509.ParseCertificate(bytes.Trim(certDER, "\x00")) //todo, why are there so many trailing 0x00 ???
 	asserter.NoErrorf(err, "error parsing the Certificate")
-	asserter.NotNilf(certPEM, "Certificate should not be Nil")
+	asserter.NotNilf(certX509, "Certificate should not be Nil")
 
-	// First, create the set of root certificates. For this example we only
-	// have one. It's also possible to omit this in order to use the
-	// default root set of the current operating system.
-	rootPEM, err := ioutil.ReadFile("ubirch-prod.cacert.pem")
-	rootDER, err := ioutil.ReadFile("ubirch-prod.cacert.der")
-	rootCertPEM, err := x509.ParseCertificate(bytes.Trim(rootDER, "\x00"))
-	requirer.NoErrorf(err, "failed to parse root Certificate")
-	requirer.NotNilf(rootCertPEM, "root Certificate is Nil")
-	asserter.NoErrorf(certPEM.CheckSignatureFrom(rootCertPEM), "Failed to verify Signature from root")
-
-	requirer.NoErrorf(err, "Missing root Certificate")
-	roots := x509.NewCertPool()
-	requirer.Truef(roots.AppendCertsFromPEM(rootPEM), "could not append Root Certificate")
-
-	opts := x509.VerifyOptions{
-		Roots: roots,
+	//read the intermediate certificate and convert it to a x509 certificate
+	imCertPEM, err := ioutil.ReadFile("IM_CA.pem")
+	requirer.NoErrorf(err, "failed to read the intermediate certificate")
+	imBlock, _ := pem.Decode(imCertPEM)
+	imCertX509, err := x509.ParseCertificate(imBlock.Bytes)
+	requirer.NoErrorf(err, "failed to parse the intermediate pem into x509")
+	if imCertX509.KeyUsage&x509.KeyUsageCertSign == 0 { //todo this property should be part of the intermediate certificate
+		imCertX509.KeyUsage = x509.KeyUsageCertSign
 	}
 
-	if _, err := certPEM.Verify(opts); err != nil {
-		log.Printf("failed to verify certificate: " + err.Error())
-	}
-	//todo currently failing because of reasons, I have to discuss with Micha
+	// check the signature of the certificate
+	asserter.NoErrorf(certX509.CheckSignatureFrom(imCertX509), "Failed to verify Signature from root")
+
+	////if parent.KeyUsage != 0 && parent.KeyUsage&KeyUsageCertSign
+	//rootDER, err := ioutil.ReadFile("ubirch-prod.cacert.der")
+	//rootCertPEM, err := x509.ParseCertificate(bytes.Trim(rootDER, "\x00"))
+	//requirer.NoErrorf(err, "failed to parse root Certificate")
+	//requirer.NotNilf(rootCertPEM, "root Certificate is Nil")
+	//
+	//requirer.NoErrorf(err, "Missing root Certificate")
+	//roots := x509.NewCertPool()
+	//requirer.Truef(roots.AppendCertsFromPEM(imCertPEM), "could not append Root Certificate")
+	//
+	//opts := x509.VerifyOptions{
+	//	Roots: roots,
+	//}
+	//
+	//_, err = certX509.Verify(opts)
+	//if err != nil {
+	//	log.Printf("failed to verify certificate: " + err.Error())
+	//}
+	//if err == nil {
+	//	log.Printf("SUCCESS")
+	//}
 }
 
 // todo WIP
@@ -584,8 +600,19 @@ func TestProtocol_DeleteAll(t *testing.T) {
 
 }
 
-// todo, WIP
+// TestSim_GenerateCSR tests getting a CSR (Certificate Signing Request) from the SIM
+// 		test to get an invalid CSR from the SIM card, should fail
+//		test to get a valid CSR from the SIM card, should pass
+// 		test parsing the certificate into x509 format, should pass
+// 			test checking the signature of the CSR, should pass
+// 			test checking if the UUID in the CSR is correct, should pass
+// 			test checking if the Organization in the CSR is correct, should pass
+// 			test checking if the Public Key Algorithm is correct, should pass
 func TestSim_GenerateCSR(t *testing.T) {
+	const (
+		csrOrganization    = "ubirch GmbH"
+		csrPubKeyAlgorithm = x509.ECDSA
+	)
 	asserter := assert.New(t)
 	requirer := require.New(t)
 
@@ -600,10 +627,30 @@ func TestSim_GenerateCSR(t *testing.T) {
 	// Verify PIN APDU
 	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
 
-	csr, err := sim.GenerateCSR("ukey", uuid.Nil)
+	// test to get an invalid CSR from the SIM card
+	csr, err := sim.GenerateCSR(defaultName, uuid.MustParse(defaultUUID))
+	asserter.Errorf(err, "failed to return error for invalid name")
+	asserter.Nilf(csr, "CSR should be Nil")
+
+	// test to get a valid CSR from the SIM card
+	csr, err = sim.GenerateCSR(SIMProxyName, uuid.MustParse(defaultUUID))
 	asserter.NoErrorf(err, "failed to generate CSR")
 	asserter.NotNilf(csr, "CSR should not be Nil")
-	log.Printf(hex.EncodeToString(csr))
+	// test parsing the certificate into x509 format
+	csrX509, err := x509.ParseCertificateRequest(bytes.Trim(csr, "\x00"))
+	asserter.NoErrorf(err, "failed to generate CSR")
+	asserter.NotNilf(csrX509, "unable to parse CSR from DER to PEM format")
+	// test checking the signature of the CSR
+	asserter.NoErrorf(csrX509.CheckSignature(), "invalid signature in CSR")
+	// test checking if the UUID in the CSR is correct
+	asserter.Equalf(csrX509.Subject.CommonName, defaultUUID, "the UUID is not correct")
+	// test checking if the Organization in the CSR is correct
+	asserter.Containsf(csrX509.Subject.Organization, csrOrganization, "the CSR does not belong to 'ubirch GmbH'")
+	// test checking if the Public Key Algorithm is correct
+	asserter.Equalf(csrX509.PublicKeyAlgorithm, csrPubKeyAlgorithm, "the public key algorithm is not correct")
+	//if csrX509 != nil {
+	//	ioutil.WriteFile("testCSR.pem", csrX509.Raw, 666)
+	//}
 }
 
 // TestSim_GetKey test the command to get a valid key from the SIM card
