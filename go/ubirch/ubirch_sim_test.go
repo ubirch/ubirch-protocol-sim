@@ -653,7 +653,7 @@ func TestSim_GetCertificate(t *testing.T) {
 // requires GenerateKey to work
 // requires GenerateCSR to work
 // todo include failure test and maybe more description
-func TestProtocol_StoreCertificate(t *testing.T) {
+func TestSim_StoreCertificate(t *testing.T) {
 	const certName = defaultName + "cert"
 	testUuid := uuid.MustParse(defaultUUID)
 
