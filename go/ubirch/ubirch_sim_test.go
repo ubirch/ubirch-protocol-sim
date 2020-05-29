@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
@@ -17,6 +18,7 @@ import (
 	"math/big"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -276,6 +278,81 @@ func helperCheckChainedUPPs(t *testing.T, uppsArray [][]byte, expectedPayloads [
 	}
 	//If we reach this, everything was checked without errors
 	return nil
+}
+
+// helperCreateCA is a helper function, that creates a Certificate Authority
+func helperCreateCA() (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	// make a CA template
+	ca := &x509.Certificate{
+		SerialNumber: big.NewInt(2020),
+		Subject: pkix.Name{
+			Organization:  []string{"Ubirch Testing ORG"},
+			Country:       []string{"DE"},
+			Province:      []string{"B"},
+			Locality:      []string{"Berlin"},
+			StreetAddress: []string{"Strasse"},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().AddDate(0, 0, 1),
+		IsCA:                  true,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+		PublicKeyAlgorithm:    x509.ECDSA,
+		SignatureAlgorithm:    x509.ECDSAWithSHA256,
+	}
+	// generate the key for the CA
+	caPrivKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+	// generate the CA
+	caBytes, err := x509.CreateCertificate(rand.Reader, ca, ca, &caPrivKey.PublicKey, caPrivKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	// PEM encode the certificate
+	caPEM, err := x509.ParseCertificate(caBytes)
+	//caPEM := new(bytes.Buffer)
+	//err = pem.Encode(caPEM, &pem.Block{Type: "CERTIFICATE", Bytes: caBytes})
+	if err != nil {
+		return nil, nil, err
+	}
+	ioutil.WriteFile("test_ca.pem", caPEM.Raw, 666)
+	// convert private key to DER
+	caPrivKeyBytes, err := x509.MarshalPKCS8PrivateKey(caPrivKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	// encode private key to PEM
+	caPrivKeyPEM := new(bytes.Buffer)
+	err = pem.Encode(caPrivKeyPEM, &pem.Block{Type: "PRIVATE KEY", Bytes: caPrivKeyBytes})
+	if err != nil {
+		return nil, nil, err
+	}
+	return caPEM, caPrivKey, nil
+}
+
+// helperCsrToCert generates a certificate template from a certificate signing request
+func helperCsrToCert(csrX509 *x509.CertificateRequest, issuer pkix.Name) *x509.Certificate {
+	hexId, _ := hex.DecodeString(defaultUUID)
+	z := new(big.Int)
+	z.SetBytes(hexId)
+	certX509 := &x509.Certificate{
+		Signature:          csrX509.Signature,
+		SignatureAlgorithm: csrX509.SignatureAlgorithm,
+
+		PublicKeyAlgorithm: csrX509.PublicKeyAlgorithm,
+		PublicKey:          csrX509.PublicKey,
+
+		SerialNumber: z,
+		Issuer:       issuer,
+		Subject:      csrX509.Subject,
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(time.Hour * 24 * 365),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+	return certX509
 }
 
 //##################################################################
@@ -572,8 +649,14 @@ func TestSim_GetCertificate(t *testing.T) {
 	//}
 }
 
-// todo WIP
-func TestSim_GetAllSSEntries(t *testing.T) {
+// TestProtocol_StoreCertificate tests storing a Certificate in the SIM
+// requires GenerateKey to work
+// requires GenerateCSR to work
+// todo include failure test and maybe more description
+func TestProtocol_StoreCertificate(t *testing.T) {
+	const certName = defaultName + "cert"
+	testUuid := uuid.MustParse(defaultUUID)
+
 	asserter := assert.New(t)
 	requirer := require.New(t)
 
@@ -587,16 +670,49 @@ func TestSim_GetAllSSEntries(t *testing.T) {
 	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
 	// Verify PIN APDU
 	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+	// generate a new key pair
+	requirer.NoErrorf(sim.GenerateKey(defaultName, testUuid), "unable to generate key")
+	csrDER, err := sim.GenerateCSR(defaultName, testUuid)
+	requirer.NoErrorf(err, "failed to generate CSR")
+	requirer.NotNilf(csrDER, "CSR should not be Nil")
+	// test parsing the certificate into x509 format
+	csrX509, err := x509.ParseCertificateRequest(bytes.Trim(csrDER, "\x00"))
+	requirer.NoErrorf(err, "failed to generate CSR")
+	requirer.NotNilf(csrX509, "unable to parse CSR from DER to PEM format")
+	// create a ca (Certification authority)
+	ca, caPrivKey, err := helperCreateCA()
+	requirer.NoErrorf(err, "failed to generate CA")
+	requirer.NotNilf(ca, "CA should not be nil")
+	requirer.NotNilf(caPrivKey, "CA private key should not be nil")
+	// transform the csr from the SIM into Certificate
+	certX509 := helperCsrToCert(csrX509, ca.Subject)
+	// create a Certificate, which is signed by the CA
+	certBytes, err := x509.CreateCertificate(rand.Reader, certX509, ca, csrX509.PublicKey, caPrivKey)
+	requirer.NoErrorf(err, "failed to generate CA")
+	requirer.NotNilf(certBytes, "certificate should not be nil")
+	// test storing the Certificate
+	asserter.NoErrorf(sim.StoreCertificate(certName, testUuid, certBytes), "failed to store the certicate")
 
-	m, err := sim.GetAllSSEntries()
-	asserter.NoErrorf(err, "failed to get all SS Entries")
-	asserter.NotNilf(m, "map of all Entries should not be 'Nil'")
-	for key, value := range m {
-		fmt.Println("Key:", key, "Value:", value)
-	}
+	//now read the certificate and check if it is correct
+	certDER, err := sim.GetCertificate(certName) //todo, why are there so many trailing 0x00 ???
+	asserter.NoErrorf(err, "got Certificate for unknown ID")
+	asserter.NotNilf(certDER, "Certificate for unknown ID is not 'Nil'")
+	// check if it is a x509 certificate
+	certReadX509, err := x509.ParseCertificate(bytes.Trim(certDER, "\x00")) //todo, why are there so many trailing 0x00 ???
+	//	ioutil.WriteFile("testCert.pem",certReadX509.Raw, 666)
+	asserter.NoErrorf(err, "error parsing the Certificate")
+	asserter.NotNilf(certReadX509, "Certificate should not be Nil")
+
+	// check the signature of the certificate
+	asserter.NoErrorf(certReadX509.CheckSignatureFrom(ca), "Failed to verify Signature from root")
+
+	// remove the test entries
+	sim.DeleteSSEntryID(certName)
+	sim.DeleteSSEntryID(defaultName)
+	sim.DeleteSSEntryID("_" + defaultName)
 }
 
-func TestProtocol_DeleteAll(t *testing.T) {
+func TestProtocol_UpdateCertificate(t *testing.T) {
 
 }
 
@@ -651,6 +767,34 @@ func TestSim_GenerateCSR(t *testing.T) {
 	//if csrX509 != nil {
 	//	ioutil.WriteFile("testCSR.pem", csrX509.Raw, 666)
 	//}
+}
+
+// todo WIP
+func TestSim_GetAllSSEntries(t *testing.T) {
+	asserter := assert.New(t)
+	requirer := require.New(t)
+
+	conf, err := helperLoadConfig()
+	requirer.NoErrorf(err, "failed to load configuration")
+	sim, err := helperSimInterface(conf.Debug)
+	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
+	defer sim.Close()
+
+	// select Application APDU
+	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
+	// Verify PIN APDU
+	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+
+	m, err := sim.GetAllSSEntries()
+	asserter.NoErrorf(err, "failed to get all SS Entries")
+	asserter.NotNilf(m, "map of all Entries should not be 'Nil'")
+	for key, value := range m {
+		fmt.Println("Key:", key, "Value:", value)
+	}
+}
+
+func TestProtocol_DeleteAll(t *testing.T) {
+
 }
 
 // TestSim_GetKey test the command to get a valid key from the SIM card
@@ -733,8 +877,7 @@ func TestSim_GetUUID(t *testing.T) {
 	asserter.Lenf(uid, lenUUID, "uuid has not the right length")
 }
 
-// todo: WIP, fails for uuid.nil, because I stored a uuid.nil,
-// todo: also fails for "ukey" because then it is the private key
+// todo: fails for "ukey" because then it is the private key
 func TestSim_GetVerificationKey(t *testing.T) {
 	const unknownName = "unknown"
 	asserter := assert.New(t)
@@ -758,6 +901,7 @@ func TestSim_GetVerificationKey(t *testing.T) {
 	// test getting the preconfigured key and check the length
 	uid, err := sim.GetUUID(SIMProxyName)
 	requirer.NoErrorf(err, "failed to read the uuid from SIM")
+	log.Printf("uuid: %v", uid.String())
 	vKey, err = sim.GetVerificationKey(uid)
 	asserter.Errorf(err, "failed to get the verification key for preconfigured UUID")
 	asserter.NotNilf(vKey, "verification key should not be empty")
@@ -954,14 +1098,6 @@ func TestSim_Sign_RandomInput(t *testing.T) {
 		lastChainUpp := createdChainedUpps[nrOfChainedUpps-1]
 		lastChainSig = hex.EncodeToString(lastChainUpp[len(lastChainUpp)-lenSignatureECDSA:])
 	}
-}
-
-func TestProtocol_StoreCertificate(t *testing.T) {
-
-}
-
-func TestProtocol_UpdateCertificate(t *testing.T) {
-
 }
 
 // TestSIM_Verify verifies UPP packages for different configurations.
