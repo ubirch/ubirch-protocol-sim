@@ -318,18 +318,7 @@ func helperCreateCA() (*x509.Certificate, *ecdsa.PrivateKey, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	ioutil.WriteFile("test_ca.pem", caPEM.Raw, 666)
-	// convert private key to DER
-	caPrivKeyBytes, err := x509.MarshalPKCS8PrivateKey(caPrivKey)
-	if err != nil {
-		return nil, nil, err
-	}
-	// encode private key to PEM
-	caPrivKeyPEM := new(bytes.Buffer)
-	err = pem.Encode(caPrivKeyPEM, &pem.Block{Type: "PRIVATE KEY", Bytes: caPrivKeyBytes})
-	if err != nil {
-		return nil, nil, err
-	}
+
 	return caPEM, caPrivKey, nil
 }
 
@@ -625,28 +614,6 @@ func TestSim_GetCertificate(t *testing.T) {
 
 	// check the signature of the certificate
 	asserter.NoErrorf(certX509.CheckSignatureFrom(imCertX509), "Failed to verify Signature from root")
-
-	////if parent.KeyUsage != 0 && parent.KeyUsage&KeyUsageCertSign
-	//rootDER, err := ioutil.ReadFile("ubirch-prod.cacert.der")
-	//rootCertPEM, err := x509.ParseCertificate(bytes.Trim(rootDER, "\x00"))
-	//requirer.NoErrorf(err, "failed to parse root Certificate")
-	//requirer.NotNilf(rootCertPEM, "root Certificate is Nil")
-	//
-	//requirer.NoErrorf(err, "Missing root Certificate")
-	//roots := x509.NewCertPool()
-	//requirer.Truef(roots.AppendCertsFromPEM(imCertPEM), "could not append Root Certificate")
-	//
-	//opts := x509.VerifyOptions{
-	//	Roots: roots,
-	//}
-	//
-	//_, err = certX509.Verify(opts)
-	//if err != nil {
-	//	log.Printf("failed to verify certificate: " + err.Error())
-	//}
-	//if err == nil {
-	//	log.Printf("SUCCESS")
-	//}
 }
 
 // TestProtocol_StoreCertificate tests storing a Certificate in the SIM
@@ -764,9 +731,6 @@ func TestSim_GenerateCSR(t *testing.T) {
 	asserter.Containsf(csrX509.Subject.Organization, csrOrganization, "the CSR does not belong to 'ubirch GmbH'")
 	// test checking if the Public Key Algorithm is correct
 	asserter.Equalf(csrX509.PublicKeyAlgorithm, csrPubKeyAlgorithm, "the public key algorithm is not correct")
-	//if csrX509 != nil {
-	//	ioutil.WriteFile("testCSR.pem", csrX509.Raw, 666)
-	//}
 }
 
 // todo WIP
