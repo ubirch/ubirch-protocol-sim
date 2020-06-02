@@ -224,12 +224,10 @@ class SimProtocol:
         :param code: the code response from the previous operation.
         :return: a data, code tuple as a result of APDU GET RESPONSE
         """
-        data = b''
         if code[0:2] == '61':
-            data, code = self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))
-        if data == b'':
-            code = "NO DATA"
-        return data, code
+            return self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))
+        else:
+            return b'', "NO RESPONSE DATA ({})".format(code)
 
     def _get_more_data(self, code: str, data: bytes, cmd: str) -> (bytes, str):
         """
@@ -249,7 +247,7 @@ class SimProtocol:
         Select an entry from the secure storage of the SIM card
         Throws exception if entry not found or tag decoding fails.
         :param entry_id: the entry ID
-        :return: the code response from the operation
+        :return: the data and code response from the operation
         """
         data, code = self._execute(STK_APP_SS_SELECT.format(len(entry_id), binascii.hexlify(entry_id).decode()))
         if code == STK_NF:
