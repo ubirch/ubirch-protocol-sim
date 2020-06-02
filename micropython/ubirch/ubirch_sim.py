@@ -68,14 +68,58 @@ APP_UBIRCH_SIGNED = 0x22
 APP_UBIRCH_CHAINED = 0x23
 
 
+def _encode_tag(tags: [(int, bytes or str)]) -> str:
+    """
+    Encode taged arguments for APDU commands.
+    :param tags: a list of tuples of the format (tag, data) where data may be bytes or a pre-encoded str
+    :return: a hex encoded string, for use with the APDU
+    """
+    r = ""
+    for (tag, data) in tags:
+        if isinstance(data, bytes):
+            # convert bytes into hex encoded string
+            data = binascii.hexlify(data).decode()
+
+        data_len = int(len(data) / 2)
+        if data_len > 0xff:
+            data_len = (0x82 << 16) | data_len
+
+        r += "{0:02X}{1:02X}{2}".format(tag, data_len, data)
+    return r
+
+
+def _decode_tag(encoded: bytes) -> [(int, bytes)]:
+    """
+    Decode APDU response data that contains tags.
+    Throws exception if tag decoding fails.
+    :param encoded: the response data with tags to decode
+    :return: (tag, data)
+    """
+    decoded = []
+    idx = 0
+    while idx < len(encoded):
+        tag = encoded[idx]
+        data_len = int(encoded[idx + 1])
+        idx += 2
+        if data_len == 0x82:  # 0x82 indicates the length of the tag data being 2 bytes long
+            data_len = int(encoded[idx]) << 8 | int(encoded[idx + 1])
+            idx += 2
+        if len(encoded[idx:]) < data_len:
+            raise Exception("tag %02x has not enough data %d < %d".format(tag, len(encoded[idx:]), data_len))
+        endIdx = idx + data_len
+        data = encoded[idx:endIdx]
+        decoded.append(tuple((tag, data)))
+        idx = endIdx
+    return decoded
+
+
 class SimProtocol:
     MAX_AT_LENGTH = 110
 
     def __init__(self, lte: LTE, at_debug: bool = False):
         """
         Initialize the SIM interface. This executes a command to initialize the modem,
-        puts it in minimal functional mode and waits for the modem to become ready,
-        then selects the SIM application.
+        and waits for the modem to be ready, then selects the SIM application.
 
         The LTE functionality must be enabled upfront.
         """
@@ -84,101 +128,85 @@ class SimProtocol:
         self._init()
 
     def _init(self):
-        if self.DEBUG: print("\n>> setting up modem")
-        # wait until the modem is ready
-        i = 20
-        cfun_cmd = "AT+CFUN?"
         self.lte.pppsuspend()
-        if self.DEBUG: print("++ " + cfun_cmd)
-        result = [k for k in self.lte.send_at_cmd(cfun_cmd).split('\r\n') if len(k.strip()) > 0]
-        if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
-        while not ("+CFUN: 1" in result or "+CFUN: 4" in result):
-            i -= 1
-            if i > 0:
-                time.sleep(0.5)
-                if self.DEBUG: print("++ " + cfun_cmd)
-                result = [k for k in self.lte.send_at_cmd(cfun_cmd).split('\r\n') if len(k.strip()) > 0]
-                if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
-            else:
-                self.lte.pppresume()
-                raise Exception("setting up modem failed: {}".format(result))
 
-        # select the SignApp
+        # setup modem
+        if self.DEBUG: print("\n>> setting up modem")
+        if not self._check_func_lvl():
+            self.lte.pppresume()
+            raise Exception("setting up modem failed")
+
+        if not self._check_sim_access():
+            self.lte.pppresume()
+            raise Exception("couldn't access SIM")
+
+        # select the SIGNiT application
         if self.DEBUG: print("\n>> selecting SIM application")
-        for _ in range(3):
-            time.sleep(0.5)
-            code = self._select()
-            if code == STK_OK:
-                self.lte.pppresume()
-                return
+        if not self._select_app():
+            self.lte.pppresume()
+            raise Exception("selecting SIM application failed")
 
         self.lte.pppresume()
-        raise Exception("selecting SIM application failed")
 
     def reinit(self, pin: str):
         self._init()
         self.sim_auth(pin)
 
-    def _select(self) -> str:
+    def _check_sim_access(self) -> bool:
+        """
+        Checks Generic SIM Access.
+        :return: if SIM access was successful
+        """
+        for _ in range(3):
+            time.sleep(0.2)
+            result = self._send_at_cmd("AT+CSIM=?")
+            if result[-1] == 'OK':
+                return True
+
+        return False
+
+    def _check_func_lvl(self) -> bool:
+        """
+        Checks if modem is ready
+        :return: if modem is ready
+        """
+        for _ in range(3):
+            time.sleep(0.2)
+            result = self._send_at_cmd("AT+CFUN?")
+            if result[-1] == 'OK':
+                if result[-2] == '+CFUN: 1' or result[-2] == '+CFUN: 4':
+                    return True
+                else:
+                    return False
+
+        return False
+
+    def _select_app(self) -> bool:
         """
         Select the SIM application to execute secure operations.
         """
-        (data, code) = self._execute(STK_APP_SELECT.format(APP_DF))
-        return code
+        for _ in range(3):
+            time.sleep(0.2)
+            data, code = self._execute(STK_APP_SELECT.format(APP_DF))
+            if code == STK_OK:
+                return True
 
-    def _encode_tag(self, tags: [(int, bytes or str)]) -> str:
-        """
-        Encode taged arguments for APDU commands.
-        :param tags: a list of tuples of the format (tag, data) where data may be bytes or a pre-encoded str
-        :return: a hex encoded string, for use with the APDU
-        """
-        r = ""
-        for (tag, data) in tags:
-            if isinstance(data, bytes):
-                # convert bytes into hex encoded string
-                data = binascii.hexlify(data).decode()
+        return False
 
-            data_len = int(len(data) / 2)
-            if data_len > 0xff:
-                data_len = (0x82 << 16) | data_len
-
-            r += "{0:02X}{1:02X}{2}".format(tag, data_len, data)
-        return r
-
-    def _decode_tag(self, encoded: bytes) -> [(int, bytes)]:
-        """
-        Decode APDU response data that contains tags.
-        Throws exception if tag decoding fails.
-        :param encoded: the response data with tags to decode
-        :return: (tag, data)
-        """
-        decoded = []
-        idx = 0
-        while idx < len(encoded):
-            tag = encoded[idx]
-            data_len = int(encoded[idx + 1])
-            idx += 2
-            if data_len == 0x82:  # 0x82 indicates the length of the tag data being 2 bytes long
-                data_len = int(encoded[idx]) << 8 | int(encoded[idx + 1])
-                idx += 2
-            if len(encoded[idx:]) < data_len:
-                raise Exception("tag %02x has not enough data %d < %d".format(tag, len(encoded[idx:]), data_len))
-            endIdx = idx + data_len
-            data = encoded[idx:endIdx]
-            decoded.append(tuple((tag, data)))
-            idx = endIdx
-        return decoded
+    def _send_at_cmd(self, cmd):
+        if self.DEBUG: print("++ " + cmd)
+        result = [k for k in self.lte.send_at_cmd(cmd).split('\r\n') if len(k.strip()) > 0]
+        if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
+        return result
 
     def _execute(self, cmd: str) -> (bytes, str):
         """
         Execute an APDU command on the SIM card itself.
         :param cmd: the command to execute
-        :return: a tuple of (data, code)
+        :return: a tuple of data, code
         """
         at_cmd = 'AT+CSIM={},"{}"'.format(len(cmd), cmd.upper())
-        if self.DEBUG: print("++ " + at_cmd)
-        result = [k for k in self.lte.send_at_cmd(at_cmd).split('\r\n') if len(k.strip()) > 0]
-        if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
+        result = self._send_at_cmd(at_cmd)
 
         if result[-1] == 'OK':
             response = result[0][7:].split(',')[1]
@@ -194,14 +222,12 @@ class SimProtocol:
         """
         Get response from the application.
         :param code: the code response from the previous operation.
-        :return: a (data, code) tuple as a result of APDU GET RESPONSE
+        :return: a data, code tuple as a result of APDU GET RESPONSE
         """
-        data = b''
         if code[0:2] == '61':
-            (data, code) = self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))
-        if data == b'':
-            code = "NO DATA"
-        return data, code
+            return self._execute(STK_GET_RESPONSE.format(int(code[2:4], 16)))
+        else:
+            return b'', "NO RESPONSE DATA ({})".format(code)
 
     def _get_more_data(self, code: str, data: bytes, cmd: str) -> (bytes, str):
         """
@@ -209,7 +235,7 @@ class SimProtocol:
         :param code: the code response from the previous operation
         :param data: the data to append more data to
         :param cmd: the command to get the pending data
-        :return: a tuple of (data, code)
+        :return: a tuple of data, code
         """
         while code == STK_MD:
             (moreData, code) = self._execute(cmd)
@@ -221,15 +247,15 @@ class SimProtocol:
         Select an entry from the secure storage of the SIM card
         Throws exception if entry not found or tag decoding fails.
         :param entry_id: the entry ID
-        :return: the code response from the operation
+        :return: the data and code response from the operation
         """
-        (data, code) = self._execute(STK_APP_SS_SELECT.format(len(entry_id), binascii.hexlify(entry_id).decode()))
+        data, code = self._execute(STK_APP_SS_SELECT.format(len(entry_id), binascii.hexlify(entry_id).decode()))
         if code == STK_NF:
             raise Exception("entry \"{}\" not found".format(entry_id))
 
-        (data, code) = self._get_response(code)
+        data, code = self._get_response(code)
         if code == STK_OK and self.DEBUG:
-            print('found entry: ' + repr(self._decode_tag(data)))
+            print('found entry: ' + repr(_decode_tag(data)))
         return data, code
 
     def get_imsi(self) -> str:
@@ -238,13 +264,9 @@ class SimProtocol:
         """
         if self.DEBUG: print("\n>> getting IMSI")
         IMSI_LEN = 15
-        at_cmd = "AT+CIMI"
-        if self.DEBUG: print("++ " + at_cmd)
-
         self.lte.pppsuspend()
         for _ in range(3):
-            result = [k for k in self.lte.send_at_cmd(at_cmd).split('\r\n') if len(k.strip()) > 0]
-            if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
+            result = self._send_at_cmd("AT+CIMI")
 
             if result[-1] == 'OK' and len(result[0]) == IMSI_LEN:
                 self.lte.pppresume()
@@ -262,7 +284,7 @@ class SimProtocol:
         if self.DEBUG: print("\n>> unlocking SIM")
         self.lte.pppsuspend()
         # FIXME do not print PIN authentication AT command
-        (data, code) = self._execute(STK_AUTH_PIN.format(len(pin), binascii.hexlify(pin).decode()))
+        data, code = self._execute(STK_AUTH_PIN.format(len(pin), binascii.hexlify(pin).decode()))
         self.lte.pppresume()
         if code != STK_OK:
             print(code)
@@ -276,7 +298,7 @@ class SimProtocol:
         """
         if self.DEBUG: print("\n>> generating random data with length " + str(length))
         self.lte.pppsuspend()
-        (data, code) = self._execute(STK_APP_RANDOM.format(length))
+        data, code = self._execute(STK_APP_RANDOM.format(length))
         self.lte.pppresume()
         if code == STK_OK:
             return data
@@ -288,7 +310,7 @@ class SimProtocol:
         """
         print("\n>> erasing ALL SS entries")
         self.lte.pppsuspend()
-        (data, code) = self._execute(STK_APP_DELETE_ALL)
+        data, code = self._execute(STK_APP_DELETE_ALL)
         self.lte.pppresume()
 
         return data, code
@@ -304,7 +326,7 @@ class SimProtocol:
         :return: the CSR bytes
         """
         if self.DEBUG: print("\n>> generating CSR for key with entry ID \"{}\"".format(entry_id))
-        cert_attr = self._encode_tag([
+        cert_attr = _encode_tag([
             (0xD4, "DE".encode()),
             (0xD5, "Berlin".encode()),
             (0xD6, "Berlin".encode()),
@@ -313,22 +335,22 @@ class SimProtocol:
             (0xD9, str(uuid).encode()),
             (0xDA, "info@ubirch.com".encode())
         ])
-        cert_args = self._encode_tag([
+        cert_args = _encode_tag([
             (0xD3, bytes([0x00])),
             (0xE7, cert_attr),
             (0xC2, bytes([0x0B, 0x01, 0x00])),
             (0xD0, bytes([0x21]))
         ])
-        args = self._encode_tag([
+        args = _encode_tag([
             (0xC4, entry_id.encode()),
             (0xC4, ("_" + entry_id).encode()),
             (0xE5, cert_args)
         ])
 
         self.lte.pppsuspend()
-        (data, code) = self._execute(STK_APP_CSR_GENERATE_FIRST.format(int(len(args) / 2), args))
-        (data, code) = self._get_response(code)  # get first part of CSR
-        (data, code) = self._get_more_data(code, data, STK_APP_CSR_GENERATE_NEXT.format(0))  # get next part of CSR
+        data, code = self._execute(STK_APP_CSR_GENERATE_FIRST.format(int(len(args) / 2), args))
+        data, code = self._get_response(code)  # get first part of CSR
+        data, code = self._get_more_data(code, data, STK_APP_CSR_GENERATE_NEXT.format(0))  # get next part of CSR
         self.lte.pppresume()
         if code == STK_OK:
             return data
@@ -345,18 +367,18 @@ class SimProtocol:
         self.lte.pppsuspend()
         # select SS certificate entry
         try:
-            (data, code) = self._select_ss_entry(certificate_entry_id)
+            data, code = self._select_ss_entry(certificate_entry_id)
         except Exception:
             self.lte.pppresume()
             raise
 
         if code == STK_OK:
             # get the certificate
-            (data, code) = self._execute(STK_APP_CERT_GET.format(0))
-            (data, code) = self._get_more_data(code, data, STK_APP_CERT_GET.format(1))
+            data, code = self._execute(STK_APP_CERT_GET.format(0))
+            data, code = self._get_more_data(code, data, STK_APP_CERT_GET.format(1))
             if code == STK_OK:
                 self.lte.pppresume()
-                return [tag[1] for tag in self._decode_tag(data) if tag[0] == 0xc3][0]
+                return [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc3][0]
 
         self.lte.pppresume()
         raise Exception(code)
@@ -379,14 +401,14 @@ class SimProtocol:
         self.lte.pppsuspend()
         # select SS entry
         try:
-            (data, code) = self._select_ss_entry(entry_id)
+            data, code = self._select_ss_entry(entry_id)
         except Exception:
-            raise
-        finally:
             self.lte.pppresume()
+            raise
+        self.lte.pppresume()
         if code == STK_OK:
             # get the entry title
-            return [tag[1] for tag in self._decode_tag(data) if tag[0] == 0xc0][0]
+            return [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc0][0]
 
         raise Exception(code)
 
@@ -399,11 +421,11 @@ class SimProtocol:
         if self.DEBUG: print("\n>> getting public key associated with entry title \"{}\"".format(uuid.hex))
         self.lte.pppsuspend()
         # get the entry ID that has UUID as entry title
-        (data, code) = self._execute(STK_APP_SS_ENTRY_ID_GET.format(int(len(uuid.hex) / 2), uuid.hex))
-        (data, code) = self._get_response(code)
+        data, code = self._execute(STK_APP_SS_ENTRY_ID_GET.format(int(len(uuid.hex) / 2), uuid.hex))
+        data, code = self._get_response(code)
         self.lte.pppresume()
         if code == STK_OK:
-            key_name = [tag[1] for tag in self._decode_tag(data) if tag[0] == 0xc4][0]
+            key_name = [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc4][0]
             # get the public key with that entry ID
             if self.DEBUG: print("found entry ID \"{}\"".format(key_name.decode()))
             return self.get_key(key_name.decode().lstrip("_"))
@@ -420,19 +442,19 @@ class SimProtocol:
         self.lte.pppsuspend()
         # select SS public key entry
         try:
-            (data, code) = self._select_ss_entry(entry_id)
+            data, code = self._select_ss_entry(entry_id)
         except Exception:
             self.lte.pppresume()
             raise
         if code == STK_OK:
             # get the key
-            args = self._encode_tag([(0xD0, bytes([0x00]))])
-            (data, code) = self._execute(STK_APP_KEY_GET.format(int(len(args) / 2), args))
-            (data, code) = self._get_response(code)
+            args = _encode_tag([(0xD0, bytes([0x00]))])
+            data, code = self._execute(STK_APP_KEY_GET.format(int(len(args) / 2), args))
+            data, code = self._get_response(code)
             if code == STK_OK:
                 self.lte.pppresume()
                 # remove the fixed 0x04 prefix from the key entry_id
-                return [tag[1][1:] for tag in self._decode_tag(data) if tag[0] == 0xc3][0]
+                return [tag[1][1:] for tag in _decode_tag(data) if tag[0] == 0xc3][0]
 
         self.lte.pppresume()
         raise Exception(code)
@@ -452,14 +474,14 @@ class SimProtocol:
 
         # prefix private key entry id with a '_'
         # SS entries must have unique entry IDs
-        args = self._encode_tag([(0xC4, entry_id.encode()),
-                                 (0xC0, uuid.hex),
-                                 (0xC1, bytes([0x03])),
-                                 (0xC4, ("_" + entry_id).encode()),
-                                 (0xC0, uuid.hex),
-                                 (0xC1, bytes([0x03]))
-                                 ])
-        (data, code) = self._execute(STK_APP_KEY_GENERATE.format(int(len(args) / 2), args))
+        args = _encode_tag([(0xC4, entry_id.encode()),
+                            (0xC0, uuid.hex),
+                            (0xC1, bytes([0x03])),
+                            (0xC4, ("_" + entry_id).encode()),
+                            (0xC0, uuid.hex),
+                            (0xC1, bytes([0x03]))
+                            ])
+        data, code = self._execute(STK_APP_KEY_GENERATE.format(int(len(args) / 2), args))
         self.lte.pppresume()
         if code != STK_OK:
             raise Exception(code)
@@ -476,12 +498,12 @@ class SimProtocol:
         :return: the signed message or throws an exceptions if failed
         """
         self.lte.pppsuspend()
-        args = self._encode_tag([(0xC4, ('_' + entry_id).encode()), (0xD0, bytes([0x21]))])
+        args = _encode_tag([(0xC4, ('_' + entry_id).encode()), (0xD0, bytes([0x21]))])
         if hash_before_sign:
             if self.DEBUG: print(">> data will be hashed by SIM before singing")
             protocol_version |= 0x40  # set flag for automatic hashing
         if self.DEBUG: print(">> sign init")
-        (data, code) = self._execute(STK_APP_SIGN_INIT.format(protocol_version, int(len(args) / 2), args))
+        data, code = self._execute(STK_APP_SIGN_INIT.format(protocol_version, int(len(args) / 2), args))
         if code == STK_OK:
             args = binascii.hexlify(value).decode()
             # split command into smaller chunks and handle the last chunk differently
@@ -489,12 +511,12 @@ class SimProtocol:
             chunks = [args[i:i + chunk_size] for i in range(0, len(args), chunk_size)]
             for chunk in chunks[:-1]:
                 if self.DEBUG: print(">> sign update")
-                (data, code) = self._execute(STK_APP_SIGN_FINAL.format(0, int(len(chunk) / 2), chunk))
+                data, code = self._execute(STK_APP_SIGN_FINAL.format(0, int(len(chunk) / 2), chunk))
                 if code != STK_OK: break
             else:
                 if self.DEBUG: print(">> sign final")
-                (data, code) = self._execute(STK_APP_SIGN_FINAL.format(1 << 7, int(len(chunks[-1]) / 2), chunks[-1]))
-            (data, code) = self._get_response(code)
+                data, code = self._execute(STK_APP_SIGN_FINAL.format(1 << 7, int(len(chunks[-1]) / 2), chunks[-1]))
+            data, code = self._get_response(code)
             if code == STK_OK:
                 self.lte.pppresume()
                 return data
@@ -507,15 +529,14 @@ class SimProtocol:
         Verify a signed message using the given entry_id key.
         :param entry_id: the key to use for verification
         :param value: the message to verify
-        :param protocol_version: 0xx0 = regular verification
-                                 0x22 = Ubirch Proto v2 signed message
+        :param protocol_version: 0x22 = Ubirch Proto v2 signed message
                                  0x23 = Ubirch Proto v2 chained message
         :return: the verification response or throws an exceptions if failed
         """
         self.lte.pppsuspend()
-        args = self._encode_tag([(0xC4, entry_id.encode()), (0xD0, bytes([0x21]))])
+        args = _encode_tag([(0xC4, entry_id.encode()), (0xD0, bytes([0x21]))])
         if self.DEBUG: print(">> verify init")
-        (data, code) = self._execute(STK_APP_VERIFY_INIT.format(protocol_version, int(len(args) / 2), args))
+        data, code = self._execute(STK_APP_VERIFY_INIT.format(protocol_version, int(len(args) / 2), args))
         if code == STK_OK:
             args = binascii.hexlify(value).decode()
             # split command into smaller chunks and handle the last chunk differently
@@ -523,11 +544,11 @@ class SimProtocol:
             chunks = [args[i:i + chunk_size] for i in range(0, len(args), chunk_size)]
             for chunk in chunks[:-1]:
                 if self.DEBUG: print(">> verify update")
-                (data, code) = self._execute(STK_APP_VERIFY_FINAL.format(0, int(len(chunk) / 2), chunk))
+                data, code = self._execute(STK_APP_VERIFY_FINAL.format(0, int(len(chunk) / 2), chunk))
                 if code != STK_OK: break
             else:
                 if self.DEBUG: print(">> verify final")
-                (data, code) = self._execute(STK_APP_VERIFY_FINAL.format(1 << 7, int(len(chunks[-1]) / 2), chunks[-1]))
+                data, code = self._execute(STK_APP_VERIFY_FINAL.format(1 << 7, int(len(chunks[-1]) / 2), chunks[-1]))
             self.lte.pppresume()
             return code == STK_OK
 
@@ -570,5 +591,4 @@ class SimProtocol:
             if self.DEBUG: print("\n>> verifying chained UPP")
             return self.verify(name, upp, APP_UBIRCH_CHAINED)
         else:
-            if self.DEBUG: print("\n>> verifying signature")
-            return self.verify(name, upp, 0x00)
+            raise Exception("message is not a UPP")
