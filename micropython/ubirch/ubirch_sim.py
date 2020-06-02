@@ -91,6 +91,7 @@ def _encode_tag(tags: [(int, bytes or str)]) -> str:
 def _decode_tag(encoded: bytes) -> [(int, bytes)]:
     """
     Decode APDU response data that contains tags.
+    Throws exception if tag decoding fails.
     :param encoded: the response data with tags to decode
     :return: (tag, data)
     """
@@ -115,19 +116,15 @@ def _decode_tag(encoded: bytes) -> [(int, bytes)]:
 class SimProtocol:
     MAX_AT_LENGTH = 110
 
-    def __init__(self, lte: LTE, at_debug: bool = False, func_lvl: int = 1):
+    def __init__(self, lte: LTE, at_debug: bool = False):
         """
         Initialize the SIM interface. This executes a command to initialize the modem,
-        sets the functionality level and waits for the modem to be ready,
-        then selects the SIM application.
+        and waits for the modem to be ready, then selects the SIM application.
 
         The LTE functionality must be enabled upfront.
-
-        :param func_lvl: the desired functionality level of modem (1: full, 4: disable modem both transmit and receive RF circuits)
         """
         self.lte = lte
         self.DEBUG = at_debug
-        self.func_lvl = func_lvl
         self._init()
 
     def _init(self):
@@ -135,7 +132,7 @@ class SimProtocol:
 
         # setup modem
         if self.DEBUG: print("\n>> setting up modem")
-        if not self._check_func_lvl() and not self._set_func_lvl():
+        if not self._check_func_lvl():
             self.lte.pppresume()
             raise Exception("setting up modem failed")
 
@@ -170,32 +167,17 @@ class SimProtocol:
 
     def _check_func_lvl(self) -> bool:
         """
-        Checks if modem is set to the desired level of functionality
-        :param func_lvl: the desired functionality level (0: minimum, 1: full, 4: disable modem both transmit and receive RF circuits)
-        :return: if modem is set to the desired functionality level
+        Checks if modem is ready
+        :return: if modem is ready
         """
         for _ in range(3):
             time.sleep(0.2)
             result = self._send_at_cmd("AT+CFUN?")
             if result[-1] == 'OK':
-                if result[-2] == '+CFUN: {}'.format(self.func_lvl):
+                if result[-2] == '+CFUN: 1' or result[-2] == '+CFUN: 4':
                     return True
                 else:
                     return False
-
-        return False
-
-    def _set_func_lvl(self) -> bool:
-        """
-        Sets modem to the desired level of functionality
-        :param func_lvl: the desired functionality level (0: minimum, 1: full, 4: disable modem both transmit and receive RF circuits)
-        :return: if modem was successfully set to the desired functionality level
-        """
-        for _ in range(3):
-            time.sleep(0.2)
-            result = self._send_at_cmd("AT+CFUN={}".format(self.func_lvl))
-            if result[-1] == 'OK' and self._check_func_lvl():
-                return True
 
         return False
 
@@ -265,12 +247,12 @@ class SimProtocol:
     def _select_ss_entry(self, entry_id: str) -> (bytes, str):
         """
         Select an entry from the secure storage of the SIM card
+        Throws exception if entry not found or tag decoding fails.
         :param entry_id: the entry ID
         :return: the code response from the operation
         """
         data, code = self._execute(STK_APP_SS_SELECT.format(len(entry_id), binascii.hexlify(entry_id).decode()))
         if code == STK_NF:
-            self.lte.pppresume()
             raise Exception("entry \"{}\" not found".format(entry_id))
 
         data, code = self._get_response(code)
@@ -386,7 +368,12 @@ class SimProtocol:
         if self.DEBUG: print("\n>> getting X.509 certificate with entry ID \"{}\"".format(certificate_entry_id))
         self.lte.pppsuspend()
         # select SS certificate entry
-        data, code = self._select_ss_entry(certificate_entry_id)
+        try:
+            data, code = self._select_ss_entry(certificate_entry_id)
+        except Exception:
+            self.lte.pppresume()
+            raise
+
         if code == STK_OK:
             # get the certificate
             data, code = self._execute(STK_APP_CERT_GET.format(0))
@@ -415,7 +402,11 @@ class SimProtocol:
         if self.DEBUG: print("\n>> getting entry title of entry with ID \"{}\"".format(entry_id))
         self.lte.pppsuspend()
         # select SS entry
-        data, code = self._select_ss_entry(entry_id)
+        try:
+            data, code = self._select_ss_entry(entry_id)
+        except Exception:
+            self.lte.pppresume()
+            raise
         self.lte.pppresume()
         if code == STK_OK:
             # get the entry title
@@ -452,7 +443,11 @@ class SimProtocol:
         if self.DEBUG: print("\n>> getting public key with entry ID \"{}\"".format(entry_id))
         self.lte.pppsuspend()
         # select SS public key entry
-        data, code = self._select_ss_entry(entry_id)
+        try:
+            data, code = self._select_ss_entry(entry_id)
+        except Exception:
+            self.lte.pppresume()
+            raise
         if code == STK_OK:
             # get the key
             args = _encode_tag([(0xD0, bytes([0x00]))])
@@ -536,8 +531,7 @@ class SimProtocol:
         Verify a signed message using the given entry_id key.
         :param entry_id: the key to use for verification
         :param value: the message to verify
-        :param protocol_version: 0xx0 = regular verification
-                                 0x22 = Ubirch Proto v2 signed message
+        :param protocol_version: 0x22 = Ubirch Proto v2 signed message
                                  0x23 = Ubirch Proto v2 chained message
         :return: the verification response or throws an exceptions if failed
         """
@@ -599,5 +593,4 @@ class SimProtocol:
             if self.DEBUG: print("\n>> verifying chained UPP")
             return self.verify(name, upp, APP_UBIRCH_CHAINED)
         else:
-            if self.DEBUG: print("\n>> verifying signature")
-            return self.verify(name, upp, 0x00)
+            raise Exception("message is not a UPP")
