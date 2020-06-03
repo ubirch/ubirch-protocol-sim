@@ -107,11 +107,13 @@ def set_time():
 def _send_at_cmd(lte, cmd) -> []:
     result = []
     for _ in range(3):
+        time.sleep(0.2)
         print("++ " + cmd)
         result = [k for k in lte.send_at_cmd(cmd).split('\r\n') if len(k.strip()) > 0]
         print('-- ' + '\r\n-- '.join([r for r in result]))
 
         if result[-1] == 'OK':
+            print()
             break
 
     return result
@@ -125,12 +127,19 @@ def set_modem_func_lvl(lte: LTE, func_lvl: int):
                                               1: full,
                                               4: disable modem both transmit and receive RF circuits)
     """
-    set_func_cmd = "AT+CFUN={}".format(func_lvl)
     get_func_cmd = "AT+CFUN?"
+    set_func_cmd = "AT+CFUN={}".format(func_lvl)
 
-    # setup modem
     print("\n>> setting up modem")
     lte.pppsuspend()
+
+    # check if modem is already set to the correct functionality level
+    result = _send_at_cmd(lte, get_func_cmd)
+    if result[-1] == 'OK' and result[-2] == '+CFUN: {}'.format(func_lvl):
+        lte.pppresume()
+        return
+
+    # set modem functionality level
     result = _send_at_cmd(lte, set_func_cmd)
     if result[-1] == 'OK':
         # check if modem is set and ready
