@@ -46,23 +46,26 @@ STK_AUTH_PIN = '00200000{:02X}{}'  # authenticate with pin ([1], 2.1.2)
 STK_APP_SELECT = '00A4040010{}'  # APDU Select Application ([1], 2.1.1)
 STK_APP_RANDOM = '80B900{:02X}00'  # APDU Generate Secure Random ([1], 2.1.3)
 STK_APP_SS_SELECT = '80A50000{:02X}{}'  # APDU Select SS Entry ([1], 2.1.4)
-STK_APP_DELETE_ALL = '80E50000'  # APDU Delete All SS Entries
+STK_APP_DELETE_ALL = '80E50000'  # APDU Delete All SS Entries ([1], 2.1.5)
 STK_APP_SS_ENTRY_ID_GET = '80B10000{:02X}{}'  # APDU Get SS Entry ID
 
 # ubirch specific commands
-STK_APP_KEY_GENERATE = '80B28000{:02X}{}'  # APDU Generate Key Pair ([1], 2.1.7)
-STK_APP_KEY_GET = '80CB0000{:02X}{}'  # APDU Get Key ([1], 2.1.9)
 STK_APP_SIGN_INIT = '80B5{:02X}00{:02X}{}'  # APDU Sign Init command ([1], 2.2.1)
 STK_APP_SIGN_FINAL = '80B6{:02X}00{:02X}{}'  # APDU Sign Update/Final command ([1], 2.2.2)
 STK_APP_VERIFY_INIT = '80B7{:02X}00{:02X}{}'  # APDU Verify Signature Init ([1], 2.2.3)
 STK_APP_VERIFY_FINAL = '80B8{:02X}00{:02X}{}'  # APDU Verify Signature Update/Final ([1], 2.2.4)
 
+# key management
+STK_APP_KEY_GENERATE = '80B28000{:02X}{}'  # APDU Generate Key Pair ([1], 2.1.7)
+STK_APP_KEY_STORE = '80D88000{:02X}{}'  # store an ECC public key
+STK_APP_KEY_GET = '80CB0000{:02X}{}'  # APDU Get Key ([1], 2.1.8)
+
 # certificate management
-STK_APP_CSR_GENERATE_FIRST = '80BA8000{:02X}{}'  # Generate Certificate Sign Request command ([1], 2.1.8)
-STK_APP_CSR_GENERATE_NEXT = '80BA8100{:02X}'  # Get Certificate Sign Request response ([1], 2.1.8)
-STK_APP_CERT_STORE = '80E3{:02X}00{:02X}{}'  # Store Certificate
-STK_APP_CERT_UPDATE = '80E7{:02X}00{:02X}{}'  # Update Certificate
-STK_APP_CERT_GET = '80CC{:02X}0000'  # Get Certificate
+STK_APP_CSR_GENERATE_FIRST = '80BA8000{:02X}{}'  # Generate Certificate Sign Request command ([1], 2.1.7)
+STK_APP_CSR_GENERATE_NEXT = '80BA8100{:02X}'  # Get Certificate Sign Request response ([1], 2.1.7)
+STK_APP_CERT_STORE = '80E3{:02X}00{:02X}{}'  # Store Certificate ([1], 2.1.9)
+STK_APP_CERT_UPDATE = '80E7{:02X}00{:02X}{}'  # Update Certificate ([1], 2.1.10)
+STK_APP_CERT_GET = '80CC{:02X}0000'  # Get Certificate ([1], 2.1.11)
 
 APP_UBIRCH_SIGNED = 0x22
 APP_UBIRCH_CHAINED = 0x23
@@ -142,9 +145,11 @@ class SimProtocol:
 
         self.lte.pppresume()
 
-    def reinit(self, pin: str):
-        self._init()
-        self.sim_auth(pin)
+    def _send_at_cmd(self, cmd):
+        if self.DEBUG: print("++ " + cmd)
+        result = [k for k in self.lte.send_at_cmd(cmd).split('\r\n') if len(k.strip()) > 0]
+        if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
+        return result
 
     def _check_sim_access(self) -> bool:
         """
@@ -158,24 +163,6 @@ class SimProtocol:
                 return True
 
         return False
-
-    def _select_app(self) -> bool:
-        """
-        Select the SIM application to execute secure operations.
-        """
-        for _ in range(2):
-            time.sleep(0.2)
-            data, code = self._execute(STK_APP_SELECT.format(APP_DF))
-            if code == STK_OK:
-                return True
-
-        return False
-
-    def _send_at_cmd(self, cmd):
-        if self.DEBUG: print("++ " + cmd)
-        result = [k for k in self.lte.send_at_cmd(cmd).split('\r\n') if len(k.strip()) > 0]
-        if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
-        return result
 
     def _execute(self, cmd: str) -> (bytes, str):
         """
@@ -220,6 +207,18 @@ class SimProtocol:
             data += more_data
         return data, code
 
+    def _select_app(self) -> bool:
+        """
+        Select the SIM application to execute secure operations.
+        """
+        for _ in range(2):
+            time.sleep(0.2)
+            data, code = self._execute(STK_APP_SELECT.format(APP_DF))
+            if code == STK_OK:
+                return True
+
+        return False
+
     def _select_ss_entry(self, entry_id: str) -> (bytes, str):
         """
         Select an entry from the secure storage of the SIM card
@@ -235,6 +234,10 @@ class SimProtocol:
         if code == STK_OK and self.DEBUG:
             print('found entry: ' + repr(_decode_tag(data)))
         return data, code
+
+    def reinit(self, pin: str):
+        self._init()
+        self.sim_auth(pin)
 
     def sim_auth(self, pin: str) -> bool:
         """
@@ -275,6 +278,134 @@ class SimProtocol:
         self.lte.pppresume()
 
         return data, code
+
+    def store_public_key(self, entry_id: str, uuid: UUID, pub_key: bytes):
+        """
+        Store an ECC public key on the SIM cards secure storage
+        Throws exception if operation fails.
+        :param entry_id: the entry ID for the key to be stored
+        :param uuid: the corresponding UUID to the key
+        :param pub_key: the key to be stored
+        """
+        if self.DEBUG: print("\n>> storing public key with entry ID \"{}\"".format(entry_id))
+
+        expected_key_len = 64
+        if len(pub_key) != expected_key_len:
+            raise Exception(
+                "invalid ECC public key length: {}, expected {} bytes".format(len(pub_key), expected_key_len))
+
+        args = _encode_tag([(0xC4, entry_id.encode()),  # Entry ID for public key
+                            (0xC0, uuid.hex),  # Entry title (UUID)
+                            (0xC1, bytes([0x03])),  # Permission: Read & Write Allowed
+                            (0xC2, bytes([0x0B, 0x01, 0x00])),  # TYPE_EC_FP_PUBLIC, LENGTH_EC_FP_256
+                            (0xC3, bytes([0x04]) + pub_key)  # Public key to be stored (SEC format)
+                            ])
+        self.lte.pppsuspend()
+        data, code = self._execute(STK_APP_KEY_STORE.format(int(len(args) / 2), args))
+        self.lte.pppresume()
+        if code != STK_OK:
+            raise Exception("storing key failed: {}".format(code))
+
+    def get_key(self, entry_id: str) -> bytes:
+        """
+        Retrieve the public key of a given entry_id.
+        :param entry_id: the key to look for
+        :return: the public key bytes
+        """
+        if self.DEBUG: print("\n>> getting public key with entry ID \"{}\"".format(entry_id))
+        self.lte.pppsuspend()
+        # select SS public key entry
+        try:
+            data, code = self._select_ss_entry(entry_id)
+        except Exception:
+            self.lte.pppresume()
+            raise
+        if code == STK_OK:
+            # get the key
+            args = _encode_tag([(0xD0, bytes([0x00]))])
+            data, code = self._execute(STK_APP_KEY_GET.format(int(len(args) / 2), args))
+            data, code = self._get_response(code)
+            if code == STK_OK:
+                self.lte.pppresume()
+                # remove the fixed 0x04 prefix from the key entry_id
+                return [tag[1][1:] for tag in _decode_tag(data) if tag[0] == 0xc3][0]
+
+        self.lte.pppresume()
+        raise Exception(code)
+
+    def generate_key(self, entry_id: str, uuid: UUID):
+        """
+        # FIXME with current pycom FW the AT command for entry titles > 1 byte is too long
+        Generate a new key pair and store it on the SIM card using the given entry ID
+        and the UUID as entry title.
+        Throws an exception if the operation fails.
+        :param entry_id: the entry ID of the SS key entry
+        :param uuid: the UUID associated with the key
+        """
+        if self.DEBUG: print("\n>> generating new key pair with entry ID \"{}\"".format(entry_id))
+        # see ch 4.1.14 ID and Title (ID shall be fix and title the UUID of the device)
+
+        # prefix private key entry id with a '_'
+        # SS entries must have unique entry IDs
+        args = _encode_tag([(0xC4, entry_id.encode()),
+                            (0xC0, uuid.hex),
+                            (0xC1, bytes([0x03])),
+                            (0xC4, ("_" + entry_id).encode()),
+                            (0xC0, uuid.hex),
+                            (0xC1, bytes([0x03]))
+                            ])
+        self.lte.pppsuspend()
+        data, code = self._execute(STK_APP_KEY_GENERATE.format(int(len(args) / 2), args))
+        self.lte.pppresume()
+        if code != STK_OK:
+            raise Exception(code)
+
+    def get_entry_title(self, entry_id: str) -> bytes:
+        """
+        Retrieve the entry title of an entry with a given id.
+        :param entry_id: the entry ID of the entry to look for
+        :return: the entry title
+        """
+        if self.DEBUG: print("\n>> getting entry title of entry with ID \"{}\"".format(entry_id))
+        self.lte.pppsuspend()
+        # select SS entry
+        try:
+            data, code = self._select_ss_entry(entry_id)
+        finally:
+            self.lte.pppresume()
+        if code == STK_OK:
+            # get the entry title
+            return [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc0][0]
+
+        raise Exception(code)
+
+    def get_uuid(self, entry_id: str) -> UUID:
+        """
+        Retrieve the UUID associated with a given device name.
+        :param entry_id: the entry ID of the SS key entry associated with the UUID
+        :return: the UUID
+        """
+        return UUID(self.get_entry_title(entry_id))
+
+    def get_verification_key(self, uuid: UUID) -> bytes:
+        """
+        Get the public key associated with a given UUID from the SIM storage.
+        :param uuid: the entry title of the verification key to look for
+        :return: the public key bytes
+        """
+        if self.DEBUG: print("\n>> getting public key associated with entry title \"{}\"".format(uuid.hex))
+        self.lte.pppsuspend()
+        # get the entry ID that has UUID as entry title
+        data, code = self._execute(STK_APP_SS_ENTRY_ID_GET.format(int(len(uuid.hex) / 2), uuid.hex))
+        data, code = self._get_response(code)
+        self.lte.pppresume()
+        if code == STK_OK:
+            key_name = [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc4][0]
+            # get the public key with that entry ID
+            if self.DEBUG: print("found entry ID \"{}\"".format(key_name.decode()))
+            return self.get_key(key_name.decode().lstrip("_"))
+
+        raise Exception(code)
 
     def generate_csr(self, entry_id: str, uuid: UUID) -> bytes:
         """
@@ -343,107 +474,6 @@ class SimProtocol:
 
         self.lte.pppresume()
         raise Exception(code)
-
-    def get_uuid(self, entry_id: str) -> UUID:
-        """
-        Retrieve the UUID associated with a given device name.
-        :param entry_id: the entry ID of the SS key entry associated with the UUID
-        :return: the UUID
-        """
-        return UUID(self.get_entry_title(entry_id))
-
-    def get_entry_title(self, entry_id: str) -> bytes:
-        """
-        Retrieve the entry title of an entry with a given id.
-        :param entry_id: the entry ID of the entry to look for
-        :return: the entry title
-        """
-        if self.DEBUG: print("\n>> getting entry title of entry with ID \"{}\"".format(entry_id))
-        self.lte.pppsuspend()
-        # select SS entry
-        try:
-            data, code = self._select_ss_entry(entry_id)
-        finally:
-            self.lte.pppresume()
-        if code == STK_OK:
-            # get the entry title
-            return [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc0][0]
-
-        raise Exception(code)
-
-    def get_verification_key(self, uuid: UUID) -> bytes:
-        """
-        Get the public key associated with a given UUID from the SIM storage.
-        :param uuid: the entry title of the verification key to look for
-        :return: the public key bytes
-        """
-        if self.DEBUG: print("\n>> getting public key associated with entry title \"{}\"".format(uuid.hex))
-        self.lte.pppsuspend()
-        # get the entry ID that has UUID as entry title
-        data, code = self._execute(STK_APP_SS_ENTRY_ID_GET.format(int(len(uuid.hex) / 2), uuid.hex))
-        data, code = self._get_response(code)
-        self.lte.pppresume()
-        if code == STK_OK:
-            key_name = [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc4][0]
-            # get the public key with that entry ID
-            if self.DEBUG: print("found entry ID \"{}\"".format(key_name.decode()))
-            return self.get_key(key_name.decode().lstrip("_"))
-
-        raise Exception(code)
-
-    def get_key(self, entry_id: str) -> bytes:
-        """
-        Retrieve the public key of a given entry_id.
-        :param entry_id: the key to look for
-        :return: the public key bytes
-        """
-        if self.DEBUG: print("\n>> getting public key with entry ID \"{}\"".format(entry_id))
-        self.lte.pppsuspend()
-        # select SS public key entry
-        try:
-            data, code = self._select_ss_entry(entry_id)
-        except Exception:
-            self.lte.pppresume()
-            raise
-        if code == STK_OK:
-            # get the key
-            args = _encode_tag([(0xD0, bytes([0x00]))])
-            data, code = self._execute(STK_APP_KEY_GET.format(int(len(args) / 2), args))
-            data, code = self._get_response(code)
-            if code == STK_OK:
-                self.lte.pppresume()
-                # remove the fixed 0x04 prefix from the key entry_id
-                return [tag[1][1:] for tag in _decode_tag(data) if tag[0] == 0xc3][0]
-
-        self.lte.pppresume()
-        raise Exception(code)
-
-    def generate_key(self, entry_id: str, uuid: UUID):
-        """
-        # FIXME with current pycom FW the AT command for entry titles > 1 byte is too long
-        Generate a new key pair and store it on the SIM card using the given entry ID
-        and the UUID as entry title.
-        Throws an exception if the operation fails.
-        :param entry_id: the entry ID of the SS key entry
-        :param uuid: the UUID associated with the key
-        """
-        if self.DEBUG: print("\n>> generating new key pair with entry ID \"{}\"".format(entry_id))
-        self.lte.pppsuspend()
-        # see ch 4.1.14 ID and Title (ID shall be fix and title the UUID of the device)
-
-        # prefix private key entry id with a '_'
-        # SS entries must have unique entry IDs
-        args = _encode_tag([(0xC4, entry_id.encode()),
-                            (0xC0, uuid.hex),
-                            (0xC1, bytes([0x03])),
-                            (0xC4, ("_" + entry_id).encode()),
-                            (0xC0, uuid.hex),
-                            (0xC1, bytes([0x03]))
-                            ])
-        data, code = self._execute(STK_APP_KEY_GENERATE.format(int(len(args) / 2), args))
-        self.lte.pppresume()
-        if code != STK_OK:
-            raise Exception(code)
 
     def sign(self, entry_id: str, value: bytes, protocol_version: int, hash_before_sign: bool = False) -> bytes:
         """
