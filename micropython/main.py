@@ -19,25 +19,28 @@ UPP_SERVER = 'niomon.{}.ubirch.com'.format(cfg["env"])
 KEY_SERVER = 'key.{}.ubirch.com'.format(cfg["env"])
 BOOT_SERVER = 'api.console.{}.ubirch.com'.format(cfg["env"])
 
-device_name = "U"
+device_name = "ukey"
 cert_id = "ucrt"
 
 lte = LTE()
 
-nb_iot_connection = False
 if 'wifi' in cfg:
-    # initialize wifi connection
-    wlan = WLAN(mode=WLAN.STA)
-    try:
-        wifi_connect(wlan, cfg["wifi"]["ssid"], cfg["wifi"]["pass"])
-    except Exception as e:
-        set_led(LED_PURPLE)
-        sys.print_exception(e)
-        print("Resetting device...")
-        time.sleep(3)
-        machine.reset()
+    nb_iot_connection = False
+    func_lvl = 4  # disable modem transmit and receive RF circuits
 else:
     nb_iot_connection = True
+    func_lvl = 1  # full modem functionality
+
+# set up modem
+try:
+    set_modem_func_lvl(lte, func_lvl)
+except Exception as e:
+    set_led(LED_PURPLE)
+    sys.print_exception(e)
+    reset()
+
+# set up network connection
+if nb_iot_connection:
     # check Network Coverage for UE device (i.e LTE modem)
     if not lte.ue_coverage():
         print("!! There seems to be no Netwok Coverage !! Try to attach and connect anyway ...")
@@ -49,19 +52,25 @@ else:
         set_led(LED_PURPLE)
         sys.print_exception(e)
         lte_shutdown(lte)
-        print("Resetting device...")
-        time.sleep(3)
-        machine.reset()
+        reset()
+else:
+    # initialize wifi connection
+    wlan = WLAN(mode=WLAN.STA)
+    try:
+        wifi_connect(wlan, cfg["wifi"]["ssid"], cfg["wifi"]["pass"])
+    except Exception as e:
+        set_led(LED_PURPLE)
+        sys.print_exception(e)
+        reset()
 
+# set time
 try:
     set_time()
 except Exception as e:
     set_led(LED_PURPLE)
     sys.print_exception(e)
     lte_shutdown(lte)
-    print("Resetting device...")
-    time.sleep(3)
-    machine.reset()
+    reset()
 
 # initialize the ubirch protocol interface
 ubirch = None
@@ -71,12 +80,10 @@ except Exception as e:
     set_led(LED_RED)
     sys.print_exception(e)
     lte_shutdown(lte)
-    print("Resetting device...")
-    time.sleep(3)
-    machine.reset()
+    reset()
 
 # get IMSI from SIM
-imsi = ubirch.get_imsi()
+imsi = get_imsi(lte)
 print("IMSI: {}\n".format(imsi))
 
 # check if PIN is known and bootstrap if unknown
@@ -92,14 +99,12 @@ else:
         set_led(LED_ORANGE)
         sys.print_exception(e)
         lte_shutdown(lte)
-        print("Resetting device...")
-        time.sleep(3)
-        machine.reset()
+        reset()
 
     with open(pin_file, "wb") as f:
         f.write(pin.encode())
 
-# use PIN to authenticate against the SIM application
+# unlock SIM
 if not ubirch.sim_auth(pin):
     print("ERROR: PIN not accepted")
     sys.exit(1)
@@ -117,39 +122,34 @@ try:
 except Exception as e:
     print("getting X.509 certificate from SIM failed: {}\n".format(e))
 
-# create a certificate for the device
-# todo this will be replaced by the X.509 certificate from the SIM card
-print("-- creating self-signed certificate for identity {}".format(device_uuid))
-csr = get_certificate(device_name, device_uuid, ubirch)
-print("certificate: {}\n".format(csr.decode()))
+    # create a self-signed certificate for the public key
+    print("-- creating self-signed certificate for identity {}".format(device_uuid))
+    csr = get_certificate(device_name, device_uuid, ubirch)
+    print("cert: {}\n".format(csr.decode()))
 
-# register public key at ubirch key service
-try:
-    register_key(KEY_SERVER, cfg["password"], csr)
-except Exception as e:
-    set_led(LED_ORANGE)
-    sys.print_exception(e)
-    lte_shutdown(lte)
-    print("Resetting device...")
-    time.sleep(3)
-    machine.reset()
+    # register public key at ubirch key service
+    try:
+        print("resp: {}\n".format(register_key(KEY_SERVER, cfg["password"], csr).decode()))
+    except Exception as e:
+        set_led(LED_ORANGE)
+        sys.print_exception(e)
+        lte_shutdown(lte)
+        reset()
 
 interval = 60
 print("-- starting loop (interval = {} sec)\n".format(interval))
 while True:
     start_time = wake_up()  # start timer
 
-    # reinitialize LTE modem and reconnect to LTE network
+    # reinitialize LTE and reconnect to LTE network
     try:
-        lte_setup(lte, nb_iot_connection, cfg.get("apn"))  # todo check if this is necessary
-        ubirch.reinit(pin)  # todo check if this is necessary
+        lte_setup(lte, nb_iot_connection, cfg.get("apn"))
+        ubirch.reinit(pin)
     except Exception as e:
         set_led(LED_PURPLE)
         sys.print_exception(e)
         lte_shutdown(lte)
-        print("Resetting device...")
-        time.sleep(3)
-        machine.reset()
+        reset()
 
     # get data
     payload_data = binascii.hexlify(crypto.getrandbits(32))
@@ -159,7 +159,7 @@ while True:
         start_time,
         device_uuid,
         binascii.b2a_base64(payload_data).decode().rstrip('\n'))
-    print("message: {}\n".format(message))
+    print("\nmessage: {}\n".format(message))
 
     # generate UPP with the message hash using the automatic hashing functionality of the SIM card
     try:
@@ -170,7 +170,7 @@ while True:
         time.sleep(3)
         continue
 
-    print("UPP (msgpack): {} ({})\n".format(binascii.hexlify(upp).decode(), len(upp)))
+    print("UPP (msgpack): {}\n".format(binascii.hexlify(upp).decode()))
     print("hash (SHA256): {}".format(binascii.b2a_base64(get_upp_payload(upp)).decode()))
 
     # make sure device is still connected before sending data
@@ -188,9 +188,7 @@ while True:
         set_led(LED_PURPLE)
         sys.print_exception(e)
         lte_shutdown(lte)
-        print("Resetting device...")
-        time.sleep(3)
-        machine.reset()
+        reset()
 
     # # # # # # # # # # # # # # # # # # #
     # send message to your backend here #
@@ -205,6 +203,9 @@ while True:
         time.sleep(3)
         continue
 
-    lte_shutdown(lte, detach=False)  # todo check if lte.deinit() is necessary here
+    # if lte.isconnected():
+    #     print(">> disconnecting LTE")
+    #     lte.disconnect()
+    lte_shutdown(lte, detach=False)
 
     sleep_until_next_interval(start_time, interval)

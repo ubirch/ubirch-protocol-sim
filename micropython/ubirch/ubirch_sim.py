@@ -130,12 +130,6 @@ class SimProtocol:
     def _init(self):
         self.lte.pppsuspend()
 
-        # setup modem
-        if self.DEBUG: print("\n>> setting up modem")
-        if not self._check_func_lvl():
-            self.lte.pppresume()
-            raise Exception("setting up modem failed")
-
         if not self._check_sim_access():
             self.lte.pppresume()
             raise Exception("couldn't access SIM")
@@ -165,27 +159,11 @@ class SimProtocol:
 
         return False
 
-    def _check_func_lvl(self) -> bool:
-        """
-        Checks if modem is ready
-        :return: if modem is ready
-        """
-        for _ in range(3):
-            time.sleep(0.2)
-            result = self._send_at_cmd("AT+CFUN?")
-            if result[-1] == 'OK':
-                if result[-2] == '+CFUN: 1' or result[-2] == '+CFUN: 4':
-                    return True
-                else:
-                    return False
-
-        return False
-
     def _select_app(self) -> bool:
         """
         Select the SIM application to execute secure operations.
         """
-        for _ in range(3):
+        for _ in range(2):
             time.sleep(0.2)
             data, code = self._execute(STK_APP_SELECT.format(APP_DF))
             if code == STK_OK:
@@ -238,8 +216,8 @@ class SimProtocol:
         :return: a tuple of data, code
         """
         while code == STK_MD:
-            (moreData, code) = self._execute(cmd)
-            data += moreData
+            more_data, code = self._execute(cmd)
+            data += more_data
         return data, code
 
     def _select_ss_entry(self, entry_id: str) -> (bytes, str):
@@ -257,23 +235,6 @@ class SimProtocol:
         if code == STK_OK and self.DEBUG:
             print('found entry: ' + repr(_decode_tag(data)))
         return data, code
-
-    def get_imsi(self) -> str:
-        """
-        Get the international mobile subscriber identity (IMSI) from SIM
-        """
-        if self.DEBUG: print("\n>> getting IMSI")
-        IMSI_LEN = 15
-        self.lte.pppsuspend()
-        for _ in range(3):
-            result = self._send_at_cmd("AT+CIMI")
-
-            if result[-1] == 'OK' and len(result[0]) == IMSI_LEN:
-                self.lte.pppresume()
-                return result[0]
-
-        self.lte.pppresume()
-        raise Exception("no IMSI available")
 
     def sim_auth(self, pin: str) -> bool:
         """
@@ -402,10 +363,8 @@ class SimProtocol:
         # select SS entry
         try:
             data, code = self._select_ss_entry(entry_id)
-        except Exception:
+        finally:
             self.lte.pppresume()
-            raise
-        self.lte.pppresume()
         if code == STK_OK:
             # get the entry title
             return [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc0][0]
