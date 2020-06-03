@@ -661,12 +661,11 @@ func TestSim_StoreCertificate(t *testing.T) {
 	asserter.NoErrorf(sim.StoreCertificate(certName, testUuid, certBytes), "failed to store the certicate")
 
 	//now read the certificate and check if it is correct
-	certDER, err := sim.GetCertificate(certName) //todo, why are there so many trailing 0x00 ???
+	certDER, err := sim.GetCertificate(certName)
 	asserter.NoErrorf(err, "got Certificate for unknown ID")
 	asserter.NotNilf(certDER, "Certificate for unknown ID is not 'Nil'")
 	// check if it is a x509 certificate
-	certReadX509, err := x509.ParseCertificate(bytes.Trim(certDER, "\x00")) //todo, why are there so many trailing 0x00 ???
-	//	ioutil.WriteFile("testCert.pem",certReadX509.Raw, 666)
+	certReadX509, err := x509.ParseCertificate(bytes.Trim(certDER, "\x00"))
 	asserter.NoErrorf(err, "error parsing the Certificate")
 	asserter.NotNilf(certReadX509, "Certificate should not be Nil")
 
@@ -679,8 +678,87 @@ func TestSim_StoreCertificate(t *testing.T) {
 	sim.DeleteSSEntryID("_" + defaultName)
 }
 
-func TestProtocol_UpdateCertificate(t *testing.T) {
+// TestSim_UpdateCertificate tests updating a Certificate in the SIM
+// requires GenerateKey to work
+// requires GenerateCSR to work
+// requires StoreCertificate to work
+// requires GetCertificate to work
+// todo include failure test and maybe more description
+func TestSim_UpdateCertificate(t *testing.T) {
+	const certName = defaultName + "cert"
+	testUuid := uuid.MustParse(defaultUUID)
 
+	asserter := assert.New(t)
+	requirer := require.New(t)
+
+	conf, err := helperLoadConfig()
+	requirer.NoErrorf(err, "failed to load configuration")
+	sim, err := helperSimInterface(conf.Debug)
+	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
+	defer sim.Close()
+
+	// select Application APDU
+	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
+	// Verify PIN APDU
+	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+	// generate a new key pair
+	requirer.NoErrorf(sim.GenerateKey(defaultName, testUuid), "unable to generate key")
+	csrDER, err := sim.GenerateCSR(defaultName, testUuid)
+	requirer.NoErrorf(err, "failed to generate CSR")
+	requirer.NotNilf(csrDER, "CSR should not be Nil")
+	// test parsing the certificate into x509 format
+	csrX509, err := x509.ParseCertificateRequest(bytes.Trim(csrDER, "\x00"))
+	requirer.NoErrorf(err, "failed to generate CSR")
+	requirer.NotNilf(csrX509, "unable to parse CSR from DER to PEM format")
+	// create a ca (Certification authority)
+	ca, caPrivKey, err := helperCreateCA()
+	requirer.NoErrorf(err, "failed to generate CA")
+	requirer.NotNilf(ca, "CA should not be nil")
+	requirer.NotNilf(caPrivKey, "CA private key should not be nil")
+	// transform the csr from the SIM into Certificate
+	certX509 := helperCsrToCert(csrX509, ca.Subject)
+	// create a Certificate, which is signed by the CA
+	certBytes, err := x509.CreateCertificate(rand.Reader, certX509, ca, csrX509.PublicKey, caPrivKey)
+	requirer.NoErrorf(err, "failed to generate CA")
+	requirer.NotNilf(certBytes, "certificate should not be nil")
+	// test storing the Certificate
+	requirer.NoErrorf(sim.StoreCertificate(certName, testUuid, certBytes), "failed to store the certicate")
+
+	//now read the certificate and check if it is correct
+	certDER, err := sim.GetCertificate(certName)
+	requirer.NoErrorf(err, "got Certificate for unknown ID")
+	requirer.NotNilf(certDER, "Certificate for unknown ID is not 'Nil'")
+	// check if it is a x509 certificate
+	certReadX509, err := x509.ParseCertificate(bytes.Trim(certDER, "\x00"))
+	requirer.NoErrorf(err, "error parsing the Certificate")
+	requirer.NotNilf(certReadX509, "Certificate should not be Nil")
+
+	// update the validity of the certificate
+	certReadX509.NotAfter = time.Now().AddDate(0, 0, 10)
+	certBytesUpd, err := x509.CreateCertificate(rand.Reader, certReadX509, ca, certReadX509.PublicKey, caPrivKey)
+	requirer.NoErrorf(err, "failed to generate CA")
+	requirer.NotNilf(certBytesUpd, "certificate should not be nil")
+
+	// test updating the Certificate
+	asserter.NoErrorf(sim.UpdateCertificate(certName, certBytesUpd), "failed to store the certicate")
+	certDERUpd, err := sim.GetCertificate(certName)
+	asserter.NoErrorf(err, "got Certificate for unknown ID")
+	asserter.NotNilf(certDERUpd, "Certificate for unknown ID is not 'Nil'")
+
+	// compare the old certificate with the updated certificate. They should not be equal
+	asserter.NotEqualf(certDER, certDERUpd, "the certificate was not updated")
+
+	// convert the certificate into x509 and check the signature
+	certReadX509Upd, err := x509.ParseCertificate(bytes.Trim(certDERUpd, "\x00"))
+	requirer.NoErrorf(err, "error parsing the Certificate")
+	requirer.NotNilf(certReadX509Upd, "Certificate should not be Nil")
+	// check the signature of the certificate
+	asserter.NoErrorf(certReadX509Upd.CheckSignatureFrom(ca), "Failed to verify Signature from root")
+
+	// remove the test entries
+	sim.DeleteSSEntryID(certName)
+	sim.DeleteSSEntryID(defaultName)
+	sim.DeleteSSEntryID("_" + defaultName)
 }
 
 // TestSim_GenerateCSR tests getting a CSR (Certificate Signing Request) from the SIM
