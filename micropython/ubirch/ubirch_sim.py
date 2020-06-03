@@ -500,32 +500,22 @@ class SimProtocol:
         :param hash_before_sign: the message will be hashed before it is used to build the UPP
         :return: the signed message or throws an exceptions if failed
         """
-        self.lte.pppsuspend()
-        args = _encode_tag([(0xC4, ('_' + entry_id).encode()), (0xD0, bytes([0x21]))])
         if hash_before_sign:
             if self.DEBUG: print(">> data will be hashed by SIM before singing")
             protocol_version |= 0x40  # set flag for automatic hashing
-        if self.DEBUG: print(">> sign init")
-        data, code = self._execute(STK_APP_SIGN_INIT.format(protocol_version, int(len(args) / 2), args))
+        args = _encode_tag([(0xC4, ('_' + entry_id).encode()), (0xD0, bytes([0x21]))])
+        self.lte.pppsuspend()
+        _, code = self._execute(STK_APP_SIGN_INIT.format(protocol_version, int(len(args) / 2), args))
         if code == STK_OK:
             args = binascii.hexlify(value).decode()
-            # split command into smaller chunks and handle the last chunk differently
-            chunk_size = self.MAX_AT_LENGTH - len(STK_APP_SIGN_FINAL[:-2].format(0, 0))
-            chunks = [args[i:i + chunk_size] for i in range(0, len(args), chunk_size)]
-            for chunk in chunks[:-1]:
-                if self.DEBUG: print(">> sign update")
-                data, code = self._execute(STK_APP_SIGN_FINAL.format(0, int(len(chunk) / 2), chunk))
-                if code != STK_OK: break
-            else:
-                if self.DEBUG: print(">> sign final")
-                data, code = self._execute(STK_APP_SIGN_FINAL.format(1 << 7, int(len(chunks[-1]) / 2), chunks[-1]))
+            _, code = self._send_cmd_in_chunks(STK_APP_SIGN_FINAL, args)
             data, code = self._get_response(code)
             if code == STK_OK:
                 self.lte.pppresume()
                 return data
 
         self.lte.pppresume()
-        raise Exception(code)
+        raise Exception("signing failed: {}".format(code))
 
     def verify(self, entry_id: str, value: bytes, protocol_version: int) -> bool:
         """
@@ -536,25 +526,17 @@ class SimProtocol:
                                  0x23 = Ubirch Proto v2 chained message
         :return: the verification response or throws an exceptions if failed
         """
-        self.lte.pppsuspend()
         args = _encode_tag([(0xC4, entry_id.encode()), (0xD0, bytes([0x21]))])
-        if self.DEBUG: print(">> verify init")
-        data, code = self._execute(STK_APP_VERIFY_INIT.format(protocol_version, int(len(args) / 2), args))
+        self.lte.pppsuspend()
+        _, code = self._execute(STK_APP_VERIFY_INIT.format(protocol_version, int(len(args) / 2), args))
         if code == STK_OK:
             args = binascii.hexlify(value).decode()
-            # split command into smaller chunks and handle the last chunk differently
-            chunk_size = self.MAX_AT_LENGTH - len(STK_APP_VERIFY_FINAL[:-2].format(0, 0))
-            chunks = [args[i:i + chunk_size] for i in range(0, len(args), chunk_size)]
-            for chunk in chunks[:-1]:
-                data, code = self._execute(STK_APP_VERIFY_FINAL.format(0, int(len(chunk) / 2), chunk))
-                if code != STK_OK: break
-            else:
-                data, code = self._execute(STK_APP_VERIFY_FINAL.format(1 << 7, int(len(chunks[-1]) / 2), chunks[-1]))
+            self._send_cmd_in_chunks(STK_APP_VERIFY_FINAL, args)
             self.lte.pppresume()
             return code == STK_OK
 
         self.lte.pppresume()
-        raise Exception(code)
+        raise Exception("verification failed: {}".format(code))
 
     def message_signed(self, name: str, payload: bytes, hash_before_sign: bool = False) -> bytes:
         """
