@@ -370,7 +370,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Fatalf("ERROR initializing: %v", err)
 	}
-	// this is necessary before the PIN can be Verified TODO is this a bug?
+	// this is necessary before the PIN can be Verified
 	err = sim.selectApplet()
 	if err != nil {
 		sim.Close()
@@ -487,7 +487,7 @@ func TestSim_VerifyPin(t *testing.T) {
 	sim, err := helperSimInterface(conf.Debug)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
-	// this is necessary before the PIN can be Verified TODO is this a bug?
+	// this is necessary before the PIN can be Verified
 	requirer.NoErrorf(sim.selectApplet(), "failed to select the Applet")
 
 	// test the wrong PIN
@@ -835,8 +835,8 @@ func TestSim_GetAllSSEntries(t *testing.T) {
 	}
 }
 
+// TODO not implemented yet, also because it would delete all data from the SIM
 func TestProtocol_DeleteAll(t *testing.T) {
-
 }
 
 // TestSim_GetKey test the command to get a valid key from the SIM card
@@ -1370,10 +1370,6 @@ func TestSim_Verify(t *testing.T) {
 		})
 	}
 }
-
-//################################################################
-// --- SIM function tests with serial interface to SIM card ---
-//################################################################
 
 //################################################################
 // --- library function tests only software, wtih mock device ---
