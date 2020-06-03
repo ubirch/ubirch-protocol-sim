@@ -61,8 +61,8 @@ STK_APP_KEY_STORE = '80D8{:02X}00{:02X}{}'  # store an ECC public key
 STK_APP_KEY_GET = '80CB0000{:02X}{}'  # APDU Get Key ([1], 2.1.8)
 
 # certificate management
-STK_APP_CSR_GENERATE_FIRST = '80BA8000{:02X}{}'  # Generate Certificate Sign Request command ([1], 2.1.7)
-STK_APP_CSR_GENERATE_NEXT = '80BA8100{:02X}'  # Get Certificate Sign Request response ([1], 2.1.7)
+STK_APP_CSR_GENERATE_FIRST = '80BA{:02X}00{:02X}{}'  # Generate Certificate Sign Request command ([1], 2.1.7)
+STK_APP_CSR_GENERATE_NEXT = '80BA810000'  # Get Certificate Sign Request response ([1], 2.1.7)
 STK_APP_CERT_STORE = '80E3{:02X}00{:02X}{}'  # Store Certificate ([1], 2.1.9)
 STK_APP_CERT_UPDATE = '80E7{:02X}00{:02X}{}'  # Update Certificate ([1], 2.1.10)
 STK_APP_CERT_GET = '80CC{:02X}0000'  # Get Certificate ([1], 2.1.11)
@@ -421,25 +421,19 @@ class SimProtocol:
 
         raise Exception(code)
 
-    def generate_csr(self, entry_id: str, uuid: UUID) -> bytes:
+    def generate_csr(self, entry_id: str) -> bytes:
         """
-        +++ FIXME THIS METHOD DOES NOT WORK WITH CURRENT PYCOM FIRMWARE +++
-        +++ the max. length of AT commands to transmit via UART (using lte.send_at_cmd) is 127 bytes +++
-        +++ but the length of the AT command containing certificate attributes is much greater (264 bytes) +++
-        [WIP] Request a CSR for the selected key.
+        Request a CSR for the selected key.
         :param entry_id: the entry ID of the SS key entry
-        :param uuid: the csr subject uuid
-        :return: the CSR bytes
+        :return: the CSR (bytes)
         """
         if self.DEBUG: print("\n>> generating CSR for key with entry ID \"{}\"".format(entry_id))
+        uuid = self.get_uuid(entry_id)
+
         cert_attr = _encode_tag([
             (0xD4, "DE".encode()),
-            (0xD5, "Berlin".encode()),
-            (0xD6, "Berlin".encode()),
             (0xD7, "ubirch GmbH".encode()),
-            (0xD8, "Security".encode()),
             (0xD9, str(uuid).encode()),
-            (0xDA, "info@ubirch.com".encode())
         ])
         cert_args = _encode_tag([
             (0xD3, bytes([0x00])),
@@ -454,14 +448,14 @@ class SimProtocol:
         ])
 
         self.lte.pppsuspend()
-        data, code = self._execute(STK_APP_CSR_GENERATE_FIRST.format(int(len(args) / 2), args))
+        _, code = self._send_cmd_in_chunks(STK_APP_CSR_GENERATE_FIRST, args)
         data, code = self._get_response(code)  # get first part of CSR
-        data, code = self._get_more_data(code, data, STK_APP_CSR_GENERATE_NEXT.format(0))  # get next part of CSR
+        data, code = self._get_more_data(code, data, STK_APP_CSR_GENERATE_NEXT)  # get next part of CSR
         self.lte.pppresume()
         if code == STK_OK:
             return data
 
-        raise Exception(code)
+        raise Exception("getting CSR failed: {}".format(code))
 
     def get_certificate(self, certificate_entry_id: str) -> bytes:
         """
@@ -531,9 +525,9 @@ class SimProtocol:
         _, code = self._execute(STK_APP_VERIFY_INIT.format(protocol_version, int(len(args) / 2), args))
         if code == STK_OK:
             args = binascii.hexlify(value).decode()
-            self._send_cmd_in_chunks(STK_APP_VERIFY_FINAL, args)
+            _, code = self._send_cmd_in_chunks(STK_APP_VERIFY_FINAL, args)
             self.lte.pppresume()
-            return code == STK_OK
+            return code == STK_OK  # todo '6988' -> unverifiable
 
         self.lte.pppresume()
         raise Exception("verification failed: {}".format(code))
