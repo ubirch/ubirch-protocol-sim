@@ -57,7 +57,7 @@ STK_APP_VERIFY_FINAL = '80B8{:02X}00{:02X}{}'  # APDU Verify Signature Update/Fi
 
 # key management
 STK_APP_KEY_GENERATE = '80B28000{:02X}{}'  # APDU Generate Key Pair ([1], 2.1.7)
-STK_APP_KEY_STORE = '80D88000{:02X}{}'  # store an ECC public key
+STK_APP_KEY_STORE = '80D8{:02X}00{:02X}{}'  # store an ECC public key
 STK_APP_KEY_GET = '80CB0000{:02X}{}'  # APDU Get Key ([1], 2.1.8)
 
 # certificate management
@@ -235,6 +235,20 @@ class SimProtocol:
             print('found entry: ' + repr(_decode_tag(data)))
         return data, code
 
+    def _send_cmd_in_chunks(self, cmd, args) -> (bytes, str):
+        """
+        Split command into smaller chunks and handle the last chunk differently
+        :return: the data and code response from the last operation
+        """
+        chunk_size = self.MAX_AT_LENGTH - len(cmd[:-2].format(0, 0))
+        chunks = [args[i:i + chunk_size] for i in range(0, len(args), chunk_size)]
+        for chunk in chunks[:-1]:
+            data, code = self._execute(cmd.format(0, int(len(chunk) / 2), chunk))
+            if code != STK_OK:
+                return data, code
+        else:
+            return self._execute(cmd.format(0x80, int(len(chunks[-1]) / 2), chunks[-1]))
+
     def reinit(self, pin: str):
         self._init()
         self.sim_auth(pin)
@@ -301,7 +315,7 @@ class SimProtocol:
                             (0xC3, bytes([0x04]) + pub_key)  # Public key to be stored (SEC format)
                             ])
         self.lte.pppsuspend()
-        data, code = self._execute(STK_APP_KEY_STORE.format(int(len(args) / 2), args))
+        data, code = self._send_cmd_in_chunks(STK_APP_KEY_STORE, args)
         self.lte.pppresume()
         if code != STK_OK:
             raise Exception("storing key failed: {}".format(code))
@@ -532,11 +546,9 @@ class SimProtocol:
             chunk_size = self.MAX_AT_LENGTH - len(STK_APP_VERIFY_FINAL[:-2].format(0, 0))
             chunks = [args[i:i + chunk_size] for i in range(0, len(args), chunk_size)]
             for chunk in chunks[:-1]:
-                if self.DEBUG: print(">> verify update")
                 data, code = self._execute(STK_APP_VERIFY_FINAL.format(0, int(len(chunk) / 2), chunk))
                 if code != STK_OK: break
             else:
-                if self.DEBUG: print(">> verify final")
                 data, code = self._execute(STK_APP_VERIFY_FINAL.format(1 << 7, int(len(chunks[-1]) / 2), chunks[-1]))
             self.lte.pppresume()
             return code == STK_OK
