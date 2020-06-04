@@ -46,6 +46,7 @@ def reset():
 
 
 def nb_iot_attach(lte: LTE, apn: str):
+    print(">> attaching to LTE network")
     for band in [8, 20, None]:
         if _nb_iot_attach(lte, apn, band):
             break
@@ -55,8 +56,7 @@ def nb_iot_attach(lte: LTE, apn: str):
 
 
 def _nb_iot_attach(lte: LTE, apn: str, band: int or None) -> bool:
-    print(">> attaching to LTE network")
-    print("  APN: {}, band: {}".format(apn, band))
+    sys.stdout.write(" APN: {}, band: {} ".format(apn, band))
     lte.attach(band=band, apn=apn)
     i = 0
     while not lte.isattached() and i < 60:
@@ -65,10 +65,12 @@ def _nb_iot_attach(lte: LTE, apn: str, band: int or None) -> bool:
         sys.stdout.write(".")
         i += 1
     print("")
-    isattached = lte.isattached()
-    if isattached:
-        print("-- attached: " + str(i) + "s")
-    return isattached
+    if lte.isattached():
+        print("-- attached: {}s".format(i))
+        return True
+    else:
+        print("couldn't attach after {}s".format(i))
+        return False
 
 
 def nb_iot_connect(lte: LTE):
@@ -97,7 +99,7 @@ def lte_setup(lte: LTE, connect: bool, apn: str or None):
             nb_iot_connect(lte)
 
 
-def lte_shutdown(lte: LTE, detach=True):
+def lte_shutdown(lte: LTE, detach=True, reset_modem=False):
     if lte.isconnected():
         print(">> disconnecting LTE")
         lte.disconnect()
@@ -105,7 +107,7 @@ def lte_shutdown(lte: LTE, detach=True):
         print(">> detaching LTE")
         lte.detach()
     print(">> de-initializing LTE")
-    lte.deinit(detach=False, reset=False)
+    lte.deinit(detach=False, reset=reset_modem)
 
 
 def wifi_connect(wlan: WLAN, ssid: str, pwd: str):

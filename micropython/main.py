@@ -43,7 +43,7 @@ except Exception as e:
 if nb_iot_connection:
     # check Network Coverage for UE device (i.e LTE modem)
     if not lte.ue_coverage():
-        print("!! There seems to be no Netwok Coverage !! Try to attach and connect anyway ...")
+        print("!! There seems to be no Network Coverage !! Try to attach and connect anyway ...")
 
     # initialize LTE and connect to LTE network
     try:
@@ -51,7 +51,7 @@ if nb_iot_connection:
     except Exception as e:
         set_led(LED_PURPLE)
         sys.print_exception(e)
-        lte_shutdown(lte)
+        lte_shutdown(lte, reset_modem=True)
         reset()
 else:
     # initialize wifi connection
