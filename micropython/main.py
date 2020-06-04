@@ -23,6 +23,7 @@ device_name = "ukey"
 cert_id = "ucrt"
 
 lte = LTE()
+lte.reset()
 
 if 'wifi' in cfg:
     nb_iot_connection = False
