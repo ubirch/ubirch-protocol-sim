@@ -46,8 +46,18 @@ def reset():
 
 
 def nb_iot_attach(lte: LTE, apn: str):
-    sys.stdout.write(">> attaching to LTE network ({})".format(apn))
-    lte.attach(band=8, apn=apn)
+    for band in [8, 20, None]:
+        if _nb_iot_attach(lte, apn, band):
+            break
+
+    if not lte.isattached():
+        raise Exception("unable to attach to LTE network")
+
+
+def _nb_iot_attach(lte: LTE, apn: str, band: int or None) -> bool:
+    print(">> attaching to LTE network")
+    print("  APN: {}, band: {}".format(apn, band))
+    lte.attach(band=band, apn=apn)
     i = 0
     while not lte.isattached() and i < 60:
         machine.idle()  # save power while waiting
@@ -55,9 +65,10 @@ def nb_iot_attach(lte: LTE, apn: str):
         sys.stdout.write(".")
         i += 1
     print("")
-    if not lte.isattached():
-        raise Exception("unable to attach to LTE network")
-    print("-- attached: " + str(i) + "s")
+    isattached = lte.isattached()
+    if isattached:
+        print("-- attached: " + str(i) + "s")
+    return isattached
 
 
 def nb_iot_connect(lte: LTE):
@@ -74,6 +85,27 @@ def nb_iot_connect(lte: LTE):
         raise Exception("unable to connect to LTE network")
     print("-- connected ({}s)".format(i))
     # print('-- IP address: ' + str(lte.ifconfig()))
+
+
+def lte_setup(lte: LTE, connect: bool, apn: str or None):
+    print(">> initializing LTE")
+    lte.init()
+    if connect:
+        if not lte.isattached():
+            nb_iot_attach(lte, apn)
+        if not lte.isconnected():
+            nb_iot_connect(lte)
+
+
+def lte_shutdown(lte: LTE, detach=True):
+    if lte.isconnected():
+        print(">> disconnecting LTE")
+        lte.disconnect()
+    if detach and lte.isattached():
+        print(">> detaching LTE")
+        lte.detach()
+    print(">> de-initializing LTE")
+    lte.deinit(detach=False, reset=False)
 
 
 def wifi_connect(wlan: WLAN, ssid: str, pwd: str):
@@ -128,7 +160,7 @@ def set_modem_func_lvl(lte: LTE, func_lvl: int):
                                               4: disable modem both transmit and receive RF circuits)
     """
     get_func_cmd = "AT+CFUN?"
-    set_func_cmd = "AT+CFUN={}".format(func_lvl)
+    set_func_cmd = "AT+CFUN={},1".format(func_lvl)
 
     print("\n>> setting up modem")
     lte.pppsuspend()
@@ -167,27 +199,6 @@ def get_imsi(lte: LTE) -> str:
         return result[0]
 
     raise Exception("getting IMSI failed: {}".format(repr(result)))
-
-
-def lte_setup(lte: LTE, connect: bool, apn: str or None):
-    print(">> initializing LTE")
-    lte.init()
-    if connect:
-        if not lte.isattached():
-            nb_iot_attach(lte, apn)
-        if not lte.isconnected():
-            nb_iot_connect(lte)
-
-
-def lte_shutdown(lte: LTE, detach=True):
-    if lte.isconnected():
-        print(">> disconnecting LTE")
-        lte.disconnect()
-    if detach and lte.isattached():
-        print(">> detaching LTE")
-        lte.detach()
-    print(">> de-initializing LTE")
-    lte.deinit(detach=False, reset=False)
 
 
 def bootstrap(imsi: str, server: str, auth: str) -> str:
