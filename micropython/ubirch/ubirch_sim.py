@@ -131,19 +131,19 @@ class SimProtocol:
         self._init()
 
     def _init(self):
-        self.lte.pppsuspend()
+        #self.lte.pppsuspend()
 
         if not self._check_sim_access():
-            self.lte.pppresume()
+            #self.lte.pppresume()
             raise Exception("couldn't access SIM")
 
         # select the SIGNiT application
         if self.DEBUG: print("\n>> selecting SIM application")
         if not self._select_app():
-            self.lte.pppresume()
+            #self.lte.pppresume()
             raise Exception("selecting SIM application failed")
 
-        self.lte.pppresume()
+        #self.lte.pppresume()
 
     def _send_at_cmd(self, cmd):
         if self.DEBUG: print("++ " + cmd)
@@ -264,10 +264,10 @@ class SimProtocol:
         :return: True if the operation was successful
         """
         if self.DEBUG: print("\n>> unlocking SIM")
-        self.lte.pppsuspend()
+        #self.lte.pppsuspend()
         # FIXME do not print PIN authentication AT command
         data, code = self._execute(STK_AUTH_PIN.format(len(pin), binascii.hexlify(pin).decode()))
-        self.lte.pppresume()
+        #self.lte.pppresume()
         if code != STK_OK:
             print(code)
         return code == STK_OK
@@ -279,9 +279,9 @@ class SimProtocol:
         :return: a byte array containing the random bytes
         """
         if self.DEBUG: print("\n>> generating random data with length " + str(length))
-        self.lte.pppsuspend()
+        #self.lte.pppsuspend()
         data, code = self._execute(STK_APP_RANDOM.format(length))
-        self.lte.pppresume()
+        #self.lte.pppresume()
         if code == STK_OK:
             return data
         raise Exception(code)
@@ -291,9 +291,9 @@ class SimProtocol:
         Delete all existing secure memory entries.
         """
         print("\n>> erasing ALL SS entries")
-        self.lte.pppsuspend()
+        #self.lte.pppsuspend()
         data, code = self._execute(STK_APP_DELETE_ALL)
-        self.lte.pppresume()
+        #self.lte.pppresume()
 
         return data, code
 
@@ -318,9 +318,9 @@ class SimProtocol:
                             (0xC2, bytes([0x0B, 0x01, 0x00])),  # TYPE_EC_FP_PUBLIC, LENGTH_EC_FP_256
                             (0xC3, bytes([0x04]) + pub_key)  # Public key to be stored (SEC format)
                             ])
-        self.lte.pppsuspend()
+        #self.lte.pppsuspend()
         data, code = self._send_cmd_in_chunks(STK_APP_KEY_STORE, args)
-        self.lte.pppresume()
+        #self.lte.pppresume()
         if code != STK_OK:
             raise Exception("storing key failed: {}".format(code))
 
@@ -331,12 +331,12 @@ class SimProtocol:
         :return: the public key bytes
         """
         if self.DEBUG: print("\n>> getting public key with entry ID \"{}\"".format(entry_id))
-        self.lte.pppsuspend()
+        #self.lte.pppsuspend()
         # select SS public key entry
         try:
             data, code = self._select_ss_entry(entry_id)
         except Exception:
-            self.lte.pppresume()
+            #self.lte.pppresume()
             raise
         if code == STK_OK:
             # get the key
@@ -344,11 +344,11 @@ class SimProtocol:
             data, code = self._execute(STK_APP_KEY_GET.format(int(len(args) / 2), args))
             data, code = self._get_response(code)
             if code == STK_OK:
-                self.lte.pppresume()
+                #self.lte.pppresume()
                 # remove the fixed 0x04 prefix from the key entry_id
                 return [tag[1][1:] for tag in _decode_tag(data) if tag[0] == 0xc3][0]
 
-        self.lte.pppresume()
+        #self.lte.pppresume()
         raise Exception(code)
 
     def generate_key(self, entry_id: str, uuid: UUID):
@@ -372,9 +372,9 @@ class SimProtocol:
                             (0xC0, uuid.hex),
                             (0xC1, bytes([0x03]))
                             ])
-        self.lte.pppsuspend()
+        #self.lte.pppsuspend()
         data, code = self._execute(STK_APP_KEY_GENERATE.format(int(len(args) / 2), args))
-        self.lte.pppresume()
+        #self.lte.pppresume()
         if code != STK_OK:
             raise Exception(code)
 
@@ -385,12 +385,12 @@ class SimProtocol:
         :return: the entry title
         """
         if self.DEBUG: print("\n>> getting entry title of entry with ID \"{}\"".format(entry_id))
-        self.lte.pppsuspend()
+        #self.lte.pppsuspend()
         # select SS entry
-        try:
-            data, code = self._select_ss_entry(entry_id)
-        finally:
-            self.lte.pppresume()
+        #try:
+        data, code = self._select_ss_entry(entry_id)
+        #finally:
+            #self.lte.pppresume()
         if code == STK_OK:
             # get the entry title
             return [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc0][0]
@@ -412,11 +412,11 @@ class SimProtocol:
         :return: the public key bytes
         """
         if self.DEBUG: print("\n>> getting public key associated with entry title \"{}\"".format(uuid.hex))
-        self.lte.pppsuspend()
+        #self.lte.pppsuspend()
         # get the entry ID that has UUID as entry title
         data, code = self._execute(STK_APP_SS_ENTRY_ID_GET.format(int(len(uuid.hex) / 2), uuid.hex))
         data, code = self._get_response(code)
-        self.lte.pppresume()
+        #self.lte.pppresume()
         if code == STK_OK:
             key_name = [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc4][0]
             # get the public key with that entry ID
@@ -451,11 +451,11 @@ class SimProtocol:
             (0xE5, cert_args)
         ])
 
-        self.lte.pppsuspend()
+        #self.lte.pppsuspend()
         _, code = self._send_cmd_in_chunks(STK_APP_CSR_GENERATE_FIRST, args)
         data, code = self._get_response(code)  # get first part of CSR
         data, code = self._get_more_data(code, data, STK_APP_CSR_GENERATE_NEXT)  # get next part of CSR
-        self.lte.pppresume()
+        #self.lte.pppresume()
         if code == STK_OK:
             return data
 
@@ -468,12 +468,12 @@ class SimProtocol:
         :return: the certificate (bytes)
         """
         if self.DEBUG: print("\n>> getting X.509 certificate with entry ID \"{}\"".format(certificate_entry_id))
-        self.lte.pppsuspend()
+        #self.lte.pppsuspend()
         # select SS certificate entry
         try:
             data, code = self._select_ss_entry(certificate_entry_id)
         except Exception:
-            self.lte.pppresume()
+            #self.lte.pppresume()
             raise
 
         if code == STK_OK:
@@ -481,10 +481,10 @@ class SimProtocol:
             data, code = self._execute(STK_APP_CERT_GET.format(0))
             data, code = self._get_more_data(code, data, STK_APP_CERT_GET.format(1))
             if code == STK_OK:
-                self.lte.pppresume()
+                #self.lte.pppresume()
                 return [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc3][0]
 
-        self.lte.pppresume()
+        #self.lte.pppresume()
         raise Exception(code)
 
     def sign(self, entry_id: str, value: bytes, protocol_version: int, hash_before_sign: bool = False) -> bytes:
@@ -502,17 +502,17 @@ class SimProtocol:
             if self.DEBUG: print(">> data will be hashed by SIM before singing")
             protocol_version |= 0x40  # set flag for automatic hashing
         args = _encode_tag([(0xC4, ('_' + entry_id).encode()), (0xD0, bytes([0x21]))])
-        self.lte.pppsuspend()
+        #self.lte.pppsuspend()
         _, code = self._execute(STK_APP_SIGN_INIT.format(protocol_version, int(len(args) / 2), args))
         if code == STK_OK:
             args = binascii.hexlify(value).decode()
             _, code = self._send_cmd_in_chunks(STK_APP_SIGN_FINAL, args)
             data, code = self._get_response(code)
             if code == STK_OK:
-                self.lte.pppresume()
+                #self.lte.pppresume()
                 return data
 
-        self.lte.pppresume()
+        #self.lte.pppresume()
         raise Exception("signing failed: {}".format(code))
 
     def verify(self, entry_id: str, value: bytes, protocol_version: int) -> bool:
@@ -525,15 +525,15 @@ class SimProtocol:
         :return: the verification response or throws an exceptions if failed
         """
         args = _encode_tag([(0xC4, entry_id.encode()), (0xD0, bytes([0x21]))])
-        self.lte.pppsuspend()
+        #self.lte.pppsuspend()
         _, code = self._execute(STK_APP_VERIFY_INIT.format(protocol_version, int(len(args) / 2), args))
         if code == STK_OK:
             args = binascii.hexlify(value).decode()
             _, code = self._send_cmd_in_chunks(STK_APP_VERIFY_FINAL, args)
-            self.lte.pppresume()
+            #self.lte.pppresume()
             return code == STK_OK  # todo '6988' -> unverifiable
 
-        self.lte.pppresume()
+        #self.lte.pppresume()
         raise Exception("verification failed: {}".format(code))
 
     def message_signed(self, name: str, payload: bytes, hash_before_sign: bool = False) -> bytes:
