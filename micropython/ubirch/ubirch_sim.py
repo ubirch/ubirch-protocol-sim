@@ -170,6 +170,10 @@ class SimProtocol:
         :param cmd: the command to execute
         :return: a tuple of data, code
         """
+        channel=1        
+        channel_char = "{!s:.1}".format(channel)
+        cmd =  cmd[0] + channel_char + cmd[2:]
+
         at_cmd = 'AT+CSIM={},"{}"'.format(len(cmd), cmd.upper())
         result = self._send_at_cmd(at_cmd)
 
