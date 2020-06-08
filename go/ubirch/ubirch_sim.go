@@ -647,35 +647,6 @@ func (p *Protocol) GetUUID(name string) (uuid.UUID, error) {
 	return uid, nil
 }
 
-// [WIP] Get the public key for a given UUID from the SIM storage.
-func (p *Protocol) GetVerificationKey(uid uuid.UUID) ([]byte, error) {
-	uidBytes, err := uid.MarshalBinary()
-	if err != nil {
-		return nil, err
-	}
-	// get the entry ID that has UUID as entry title
-	_, code, err := p.execute(stkAppSsEntryIdGet, len(uidBytes), hex.EncodeToString(uidBytes))
-	if err != nil {
-		return nil, err
-	}
-	data, code, err := p.response(code)
-	if err != nil {
-		return nil, err
-	}
-	if code != ApduOk {
-		return nil, fmt.Errorf("retrieving key entry ID for UUID %s failed. APDU error: %x", uid.String(), code)
-	}
-	tags, err := p.decode(data)
-	if err != nil {
-		return nil, err
-	}
-	keyName, err := p.findTag(tags, byte(0xc4))
-	log.Printf("retrieved entry ID: %s", string(keyName))
-
-	// get the key from this entry and return it
-	return p.GetKey(string(keyName))
-}
-
 // Generate a key pair on the SIM card and store it using the given name and the UUID that is
 // later used for the ubirch-protocol. The name for private keys is prefixed with an underscore
 // ("_") and the public key gets the name as is. This API automatically selects the right name.

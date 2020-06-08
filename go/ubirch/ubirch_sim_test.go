@@ -919,36 +919,6 @@ func TestSim_GetUUID(t *testing.T) {
 	asserter.Lenf(uid, lenUUID, "uuid has not the right length")
 }
 
-// todo: fails for "ukey" because then it is the private key
-func TestSim_GetVerificationKey(t *testing.T) {
-	const unknownName = "unknown"
-	asserter := assert.New(t)
-	requirer := require.New(t)
-
-	conf, err := helperLoadConfig()
-	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := helperSimInterface(conf.Debug)
-	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
-	defer sim.Close()
-
-	// select Application APDU
-	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
-	// Verify PIN APDU
-	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
-
-	vKey, err := sim.GetVerificationKey(uuid.Nil)
-	asserter.Errorf(err, "failed to return error for 'nil'UUID")
-	asserter.Nilf(vKey, "verification key should be empty")
-
-	// test getting the preconfigured key and check the length
-	uid, err := sim.GetUUID(SIMProxyName)
-	requirer.NoErrorf(err, "failed to read the uuid from SIM")
-	log.Printf("uuid: %v", uid.String())
-	vKey, err = sim.GetVerificationKey(uid)
-	asserter.Errorf(err, "failed to get the verification key for preconfigured UUID")
-	asserter.NotNilf(vKey, "verification key should not be empty")
-}
-
 //TestSIM_PutPubKey test setting a public key on the SIM, to see which tests are run see the 'tests' struct
 //the key is retrived from the card and compared to what was sent unless the test is a test which must fail/error
 func TestSIM_PutPubKey(t *testing.T) {
