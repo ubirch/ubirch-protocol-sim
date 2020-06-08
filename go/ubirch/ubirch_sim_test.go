@@ -28,14 +28,14 @@ import (
 )
 
 const ( //Global SIMProxy test settings
-	SIMProxySerialPort    = "/dev/ttyACM0"
-	SIMProxyBaudrate      = 115200
-	SIMProxyName          = "ukey"
-	SIMProxySerialDebug   = false
-	SIMProxyProtocolDebug = false
+	SIMProxySerialPort = "/dev/ttyACM0"
+	SIMProxyBaudrate   = 115200
 )
 
 ////Constants////
+//Name of the ubirch key preprogrammed to the SIM
+const ubirchKeyName = "ukey"
+
 //constants to avoid 'magic numbers' in the code
 const (
 	lenPubkeyECDSA    = 64
@@ -794,7 +794,7 @@ func TestSim_GenerateCSR(t *testing.T) {
 	asserter.Nilf(csr, "CSR should be Nil")
 
 	// test to get a valid CSR from the SIM card
-	csr, err = sim.GenerateCSR(SIMProxyName, uuid.MustParse(defaultUUID))
+	csr, err = sim.GenerateCSR(ubirchKeyName, uuid.MustParse(defaultUUID))
 	asserter.NoErrorf(err, "failed to generate CSR")
 	asserter.NotNilf(csr, "CSR should not be Nil")
 	// test parsing the certificate into x509 format
@@ -869,11 +869,11 @@ func TestSim_GetKey(t *testing.T) {
 	asserter.Errorf(err, "failed to return error for getting unknown public Key from SIM")
 	asserter.Nilf(pubKey, "public key should be 'Nil'")
 	// test getting the preconfigured key and check the length
-	pubKey, err = sim.GetKey(SIMProxyName)
+	pubKey, err = sim.GetKey(ubirchKeyName)
 	asserter.NoErrorf(err, "failed to read the public Key from SIM")
 	asserter.Lenf(pubKey, lenPubkeyECDSA, "public key has not the right length")
 	// test reading the private Key
-	privateKeyName := "_" + SIMProxyName
+	privateKeyName := "_" + ubirchKeyName
 	pubKey, err = sim.GetKey(privateKeyName)
 	asserter.Errorf(err, "failed to return error for getting private Key from SIM")
 	asserter.Nilf(pubKey, "private key should be 'Nil'")
@@ -909,11 +909,11 @@ func TestSim_GetUUID(t *testing.T) {
 	asserter.Errorf(err, "failed to return error for getting unknown uuid from SIM")
 	asserter.Equalf(uuid.Nil, uid, "uuid should be 'Nil'")
 	// test getting the preconfigured key and check the length
-	uid, err = sim.GetUUID(SIMProxyName)
+	uid, err = sim.GetUUID(ubirchKeyName)
 	asserter.NoErrorf(err, "failed to read the uuid from SIM")
 	asserter.Lenf(uid, lenUUID, "uuid has not the right length")
 	// test reading the uuid with private key name and check the length
-	privateKeyName := "_" + SIMProxyName
+	privateKeyName := "_" + ubirchKeyName
 	uid, err = sim.GetUUID(privateKeyName)
 	asserter.NoErrorf(err, "failed to read the uuid from SIM")
 	asserter.Lenf(uid, lenUUID, "uuid has not the right length")
@@ -1055,7 +1055,7 @@ func TestSim_Sign_RandomInput(t *testing.T) {
 	defer sim.Close()
 
 	//get the pubkey from the SIM. we use the standard key, which should be on every card
-	simPubkeyBytes, err := sim.GetKey(SIMProxyName)
+	simPubkeyBytes, err := sim.GetKey(ubirchKeyName)
 	requirer.NoError(err, "Could not get pubkey from SIM")
 	requirer.NotZero(len(simPubkeyBytes), "Returned pubkey is empty")
 	simPubkey := hex.EncodeToString(simPubkeyBytes)
@@ -1076,7 +1076,7 @@ func TestSim_Sign_RandomInput(t *testing.T) {
 
 		//Create 'Signed' type UPP with data
 		t.Log("Creating 'signed' UPP")
-		createdSignedUpp, err := sim.Sign(SIMProxyName, inputData[:], Signed, true)
+		createdSignedUpp, err := sim.Sign(ubirchKeyName, inputData[:], Signed, true)
 		requirer.NoErrorf(err, "Protocol.SignData() failed for Signed type UPP with input data %v", hex.EncodeToString(inputData))
 
 		//Check created Signed UPP
@@ -1097,7 +1097,7 @@ func TestSim_Sign_RandomInput(t *testing.T) {
 		createdChainedUpps := make([][]byte, nrOfChainedUpps)
 		expectedPayloads := make([]string, nrOfChainedUpps)
 		for currUppIndex := range createdChainedUpps {
-			createdChainedUpps[currUppIndex], err = sim.Sign(SIMProxyName, inputData[:], Chained, true)
+			createdChainedUpps[currUppIndex], err = sim.Sign(ubirchKeyName, inputData[:], Chained, true)
 			asserter.NoErrorf(err, "SignData() could not create Chained type UPP for index %v", currUppIndex)
 			expectedPayloads[currUppIndex] = hex.EncodeToString(inputDataHash[:]) //build expected payload array for checking later
 		}
