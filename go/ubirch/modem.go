@@ -2,11 +2,12 @@ package ubirch
 
 import (
 	"errors"
-	"go.bug.st/serial"
 	"log"
 	"regexp"
 	"strings"
 	"time"
+
+	"go.bug.st/serial"
 )
 
 type SimSerialPort struct {
@@ -73,15 +74,11 @@ func (sp *SimSerialPort) Send(cmd string) ([]string, error) {
 }
 
 func (sp *SimSerialPort) Init() {
-	// check if communication with SIM card is working
-	for {
-		r, err := sp.Send("AT+CSIM=?")
-		if err != nil {
-			log.Printf("SERIAL PORT ERROR: %v", err)
-		} else if r[0] == "OK" {
-			break
-		}
-		time.Sleep(time.Second)
+	//workaround: first command often leads to an error, probably due to port not properly flushed when opening
+	//we simply send a irrelevant command first to clear the modem buffer/errors
+	_, err := sp.Send("AT+CFUN?")
+	if err != nil {
+		log.Printf("could not send modem command: %v\n", err)
 	}
 
 	// check if the modem is online and initialize it
