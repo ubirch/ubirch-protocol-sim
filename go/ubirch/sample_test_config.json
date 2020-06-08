@@ -1,6 +1,6 @@
 {
-  "password": "",
-  "debug": true,
-  "uuid": "12345678-1234-1234-1234-123456789abc",
+  "serialport": "/dev/ttyACM0",
+  "serialbaudrate": 115200,
+  "debug": false,
   "pin": ""
 }
