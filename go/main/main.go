@@ -6,15 +6,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
-	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
-	"go.bug.st/serial"
 	"log"
 	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
+	"go.bug.st/serial"
 )
 
 func main() {
@@ -42,7 +43,7 @@ func main() {
 		log.Printf("serial port open failed: %v\n", err)
 		os.Exit(1)
 	}
-	serialPort := ubirch.SimSerialPort{Port: s, Debug: true}
+	serialPort := ubirch.SimSerialPort{Port: s, Debug: false}
 	serialPort.Init()
 
 	//noinspection GoUnhandledErrorResult
