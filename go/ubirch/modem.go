@@ -106,6 +106,7 @@ func (sp *SimSerialPort) Init() {
 				}
 			}
 		}
+
 	}
 }
 
