@@ -539,7 +539,7 @@ func (p *Protocol) PutPubKey(name string, uid uuid.UUID, pubKey []byte) error {
 		{0xC0, uidBytes},                 // Entry title (UUID)
 		{0xC1, []byte{0x03}},             // Permission: Read & Write Allowed
 		{0xC2, []byte{0x0B, 0x01, 0x00}}, // Key Type: TYPE_EC_FP_PUBLIC, Key Length: LENGTH_EC_FP_256
-		{0xC3, pubKey},                   // Public key to be stored (see workaround comment above)
+		{0xC3, pubKey},                   // Public key to be stored
 	})
 	if err != nil {
 		return err
