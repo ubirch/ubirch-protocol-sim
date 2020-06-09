@@ -838,9 +838,9 @@ func TestSim_GetAllSSEntries(t *testing.T) {
 	}
 }
 
-// TODO not implemented yet, also because it would delete all data from the SIM
-func TestProtocol_DeleteAll(t *testing.T) {
-}
+// // TODO not implemented yet, also because it would delete all data from the SIM
+// func TestProtocol_DeleteAll(t *testing.T) {
+// }
 
 // TestSim_GetKey test the command to get a valid key from the SIM card
 // 		test empty name, should fail
