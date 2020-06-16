@@ -121,14 +121,17 @@ def _decode_tag(encoded: bytes) -> [(int, bytes)]:
 class SimProtocol:
     MAX_AT_LENGTH = 110
 
-    def __init__(self, lte: LTE, at_debug: bool = False):
+    def __init__(self, lte: LTE, at_debug: bool = False, channel: int = None):
         """
         Initialize the SIM interface. This executes a command to initialize the modem,
         and waits for the modem to be ready, then selects the SIM application.
 
         The LTE functionality must be enabled upfront.
+
+        If there is already a channel to the SIM it can be specified with channel=X. If
+        not specified a new channel will be requested from the SIM and set automatically.
         """
-        self.channel = 1#TODO: Set to None on init
+        self.channel = channel
         self.lte = lte
         self.DEBUG = at_debug
         self.init()
@@ -140,6 +143,10 @@ class SimProtocol:
             self.lte.pppresume()
             raise Exception("couldn't access SIM")
 
+        #if no channel set: open a new communication channel to SIM and save it
+        if self.channel == None:
+            self.channel = self.open_channel()
+        
         # select the SIGNiT application
         if self.DEBUG: print("\n>> selecting SIM application")
         if not self._select_app():
