@@ -41,6 +41,8 @@ STK_NF = '6A88'  # not found
 # SIM toolkit commands
 STK_GET_RESPONSE = '00C00000{:02X}'  # get a pending response
 STK_AUTH_PIN = '00200000{:02X}{}'  # authenticate with pin ([1], 2.1.2)
+STK_OPEN_CHANNEL =  "0070000001" #open new logical channel to SIM (ISO 7816 part 4 sect. 6.16)
+STK_CLOSE_CHANNEL = "007080{:02X}00" #close a logical channel (ISO 7816 part 4 sect. 6.16)
 
 # generic app commands
 STK_APP_SELECT = '00A4040010{}'  # APDU Select Application ([1], 2.1.1)
@@ -126,7 +128,7 @@ class SimProtocol:
 
         The LTE functionality must be enabled upfront.
         """
-        self.channel = 0#TODO: Set to None on init
+        self.channel = 1#TODO: Set to None on init
         self.lte = lte
         self.DEBUG = at_debug
         self.init()
@@ -151,6 +153,26 @@ class SimProtocol:
         result = [k for k in self.lte.send_at_cmd(cmd).split('\r\n') if len(k.strip()) > 0]
         if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
         return result
+
+    def open_channel(self) -> (int):
+        """
+        Open a new logical channel to communicate with the SIM (see ISO 7816 part 4 sect. 6.16)
+        Throws an exception if the SIM does not assign a new channel succesfully. Returns assigned channel.
+        Always uses channel 0 (basic channel) for request. Does not change the internal channel used by the class.
+        :return: channel number (assigned by the SIM)
+        """
+        old_channel = self.channel # save lib channel
+        self.channel = 0 #send on basic channel
+        data,code = self._execute(STK_OPEN_CHANNEL)#send 
+        self.channel =old_channel # restore lib channel
+
+        if code != STK_OK and len(data)!=1:
+            raise Exception("couldn't open channel, response code: {}, data: {}".format(code,data))
+        assigned_channel = int.from_bytes(data,"big")
+        if assigned_channel > 3 or assigned_channel < 0:
+            raise Exception("unsupported channel number received")
+        return assigned_channel
+        
 
     def _execute(self, cmd: str) -> (bytes, str):
         """
