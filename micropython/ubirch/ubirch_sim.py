@@ -128,8 +128,9 @@ class SimProtocol:
 
         The LTE functionality must be enabled upfront.
 
-        If there is already a channel to the SIM it can be specified with channel=X. If
-        not specified a new channel will be requested from the SIM and set automatically.
+        If there is already a channel to the SIM it can be specified with channel=X. Supported
+        channel values are 0-3. If not specified a new channel will be requested from the SIM
+        and set automatically.        
         """
         self.channel = channel
         self.lte = lte
@@ -179,6 +180,22 @@ class SimProtocol:
         if assigned_channel > 3 or assigned_channel < 0:
             raise Exception("unsupported channel number received")
         return assigned_channel
+
+    def close_channel(self,channel_to_close:int) -> bool:
+        """
+        Closes the specified logical channel to the SIM (see ISO 7816 part 4 sect. 6.16)
+        Throws an exception in case of failure. Always uses channel 0 (basic channel) for request.
+        Does not change the internal channel used by the class. Returns true if closing was successfull.
+        """
+        old_channel = self.channel # save lib channel
+        self.channel = 0 #send on basic channel
+        _,code = self._execute(STK_CLOSE_CHANNEL.format(channel_to_close))#send 
+        self.channel =old_channel # restore lib channel
+
+        if code == STK_OK :
+            return True
+        else:
+            return False
         
 
     def _execute(self, cmd: str) -> (bytes, str):
