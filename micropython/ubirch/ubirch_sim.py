@@ -126,6 +126,7 @@ class SimProtocol:
 
         The LTE functionality must be enabled upfront.
         """
+        self.channel = 0#TODO: Set to None on init
         self.lte = lte
         self.DEBUG = at_debug
         self.init()
@@ -154,9 +155,23 @@ class SimProtocol:
     def _execute(self, cmd: str) -> (bytes, str):
         """
         Execute an APDU command on the SIM card itself.
+        If the APDU contains channel information, encode the channel info into the CLA byte.
         :param cmd: the command to execute
         :return: a tuple of data, code
         """
+        
+        #check if this is a command where the CLA byte contains channel info (see ISO 7816 part 4 sect. 5.4.1)
+        if cmd[0] == "0" or cmd[0] == "8" or cmd[0] == "A" or cmd[0] == "9":
+            #check if valid channel is set
+            if self.channel == None or self.channel <0 or self.channel >3:
+                raise Exception("invalid channel for sending APDU command: {}".format(self.channel))       
+            #check if APDU command definition indicates non-basic channel or secure messaging
+            if cmd[1] != "0":
+                 raise Exception("CLA byte (0x{}) of command invalid: indicates specific channel or secure messaging (not supported)".format(cmd[0:2]))
+            #encode channel into command
+            channel_char = "{!s:.1}".format(self.channel)
+            cmd =  cmd[0] + channel_char + cmd[2:]
+
         at_cmd = 'AT+CSIM={},"{}"'.format(len(cmd), cmd.upper())
         result = self._send_at_cmd(at_cmd)
 
