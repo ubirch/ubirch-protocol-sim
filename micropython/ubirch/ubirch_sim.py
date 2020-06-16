@@ -128,9 +128,9 @@ class SimProtocol:
         """
         self.lte = lte
         self.DEBUG = at_debug
-        self._init()
+        self.init()
 
-    def _init(self):
+    def init(self):
         self.lte.pppsuspend()
 
         if not self._check_sim_access():
@@ -151,19 +151,6 @@ class SimProtocol:
         if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
         return result
 
-    def _check_sim_access(self) -> bool:
-        """
-        Checks Generic SIM Access.
-        :return: if SIM access was successful
-        """
-        for _ in range(3):
-            time.sleep(0.2)
-            result = self._send_at_cmd("AT+CSIM=?")
-            if result[-1] == 'OK':
-                return True
-
-        return False
-
     def _execute(self, cmd: str) -> (bytes, str):
         """
         Execute an APDU command on the SIM card itself.
@@ -182,6 +169,20 @@ class SimProtocol:
             return data, code
         else:
             return b'', result[-1]
+
+    def _send_cmd_in_chunks(self, cmd, args) -> (bytes, str):
+        """
+        Split command into smaller chunks and handle the last chunk differently
+        :return: the data and code response from the last operation
+        """
+        chunk_size = self.MAX_AT_LENGTH - len(cmd[:-2].format(0, 0))
+        chunks = [args[i:i + chunk_size] for i in range(0, len(args), chunk_size)]
+        for chunk in chunks[:-1]:
+            data, code = self._execute(cmd.format(0, int(len(chunk) / 2), chunk))
+            if code != STK_OK:
+                return data, code
+        else:
+            return self._execute(cmd.format(0x80, int(len(chunks[-1]) / 2), chunks[-1]))
 
     def _get_response(self, code: str) -> (bytes, str):
         """
@@ -206,6 +207,19 @@ class SimProtocol:
             more_data, code = self._execute(cmd)
             data += more_data
         return data, code
+
+    def _check_sim_access(self) -> bool:
+        """
+        Checks Generic SIM Access.
+        :return: if SIM access was successful
+        """
+        for _ in range(3):
+            time.sleep(0.2)
+            result = self._send_at_cmd("AT+CSIM=?")
+            if result[-1] == 'OK':
+                return True
+
+        return False
 
     def _select_app(self) -> bool:
         """
@@ -234,24 +248,6 @@ class SimProtocol:
         if code == STK_OK and self.DEBUG:
             print('found entry: ' + repr(_decode_tag(data)))
         return data, code
-
-    def _send_cmd_in_chunks(self, cmd, args) -> (bytes, str):
-        """
-        Split command into smaller chunks and handle the last chunk differently
-        :return: the data and code response from the last operation
-        """
-        chunk_size = self.MAX_AT_LENGTH - len(cmd[:-2].format(0, 0))
-        chunks = [args[i:i + chunk_size] for i in range(0, len(args), chunk_size)]
-        for chunk in chunks[:-1]:
-            data, code = self._execute(cmd.format(0, int(len(chunk) / 2), chunk))
-            if code != STK_OK:
-                return data, code
-        else:
-            return self._execute(cmd.format(0x80, int(len(chunks[-1]) / 2), chunks[-1]))
-
-    def reinit(self, pin: str):
-        self._init()
-        self.sim_auth(pin)
 
     def sim_auth(self, pin: str) -> bool:
         """
@@ -292,6 +288,13 @@ class SimProtocol:
         self.lte.pppresume()
 
         return data, code
+
+    def entry_exists(self, entry_id: str):
+        if self.DEBUG: print("\n>> looking for entry ID \"{}\"".format(entry_id))
+        self.lte.pppsuspend()
+        _, code = self._execute(STK_APP_SS_SELECT.format(len(entry_id), binascii.hexlify(entry_id).decode()))
+        self.lte.pppresume()
+        return code[0:2] == '61'
 
     def store_public_key(self, entry_id: str, uuid: UUID, pub_key: bytes):
         """
@@ -509,7 +512,7 @@ class SimProtocol:
                 return data
 
         self.lte.pppresume()
-        raise Exception("signing failed: {}".format(code))
+        raise Exception(code)
 
     def verify(self, entry_id: str, value: bytes, protocol_version: int) -> bool:
         """
@@ -527,10 +530,13 @@ class SimProtocol:
             args = binascii.hexlify(value).decode()
             _, code = self._send_cmd_in_chunks(STK_APP_VERIFY_FINAL, args)
             self.lte.pppresume()
-            return code == STK_OK  # todo '6988' -> unverifiable
+            if code == STK_OK:
+                return True
+            if code == '6988':
+                return False
 
         self.lte.pppresume()
-        raise Exception("verification failed: {}".format(code))
+        raise Exception(code)
 
     def message_signed(self, name: str, payload: bytes, hash_before_sign: bool = False) -> bytes:
         """
@@ -562,10 +568,10 @@ class SimProtocol:
         :return: whether the message can be verified
         """
         if upp[1] == APP_UBIRCH_SIGNED:
-            if self.DEBUG: print("\n>> verifying signed UPP")
+            if self.DEBUG: print("\n>> verifying signed UPP using key \"{}\"".format(name))
             return self.verify(name, upp, APP_UBIRCH_SIGNED)
         elif upp[1] == APP_UBIRCH_CHAINED:
-            if self.DEBUG: print("\n>> verifying chained UPP")
+            if self.DEBUG: print("\n>> verifying chained UPP using key \"{}\"".format(name))
             return self.verify(name, upp, APP_UBIRCH_CHAINED)
         else:
             raise Exception("message is not a UPP")
