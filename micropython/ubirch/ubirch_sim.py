@@ -166,7 +166,7 @@ class SimProtocol:
         """
         self.lte.pppsuspend()
         # Close logical channel to SIM if open
-        if self._channel is not None:
+        if self._channel is not None and self._channel is not 0:
             if self._close_channel(self._channel):
                 self._channel = None
             else:
