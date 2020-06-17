@@ -29,6 +29,8 @@ import ubinascii as binascii
 from network import LTE
 from uuid import UUID
 
+supported_channels = [0, 1, 2, 3]
+
 # AT+CSIM=LENGTH,COMMAND
 
 # Application Identifier
@@ -41,8 +43,8 @@ STK_NF = '6A88'  # not found
 # SIM toolkit commands
 STK_GET_RESPONSE = '00C00000{:02X}'  # get a pending response
 STK_AUTH_PIN = '00200000{:02X}{}'  # authenticate with pin ([1], 2.1.2)
-STK_OPEN_CHANNEL =  "0070000001" #open new logical channel to SIM (ISO 7816 part 4 sect. 6.16)
-STK_CLOSE_CHANNEL = "007080{:02X}00" #close a logical channel (ISO 7816 part 4 sect. 6.16)
+STK_OPEN_CHANNEL = "0070000001"  # open new logical channel to SIM (ISO 7816 part 4 sect. 6.16)
+STK_CLOSE_CHANNEL = "007080{:02X}00"  # close a logical channel (ISO 7816 part 4 sect. 6.16)
 
 # generic app commands
 STK_APP_SELECT = '00A4040010{}'  # APDU Select Application ([1], 2.1.1)
@@ -132,7 +134,7 @@ class SimProtocol:
         channel values are 0-3. If not specified a new channel will be requested from the SIM
         and set automatically.        
         """
-        self.channel = channel
+        self._channel = channel
         self.lte = lte
         self.DEBUG = at_debug
         self.init()
@@ -144,10 +146,10 @@ class SimProtocol:
             self.lte.pppresume()
             raise Exception("couldn't access SIM")
 
-        #if no channel set: open a new communication channel to SIM and save it
-        if self.channel == None:
-            self.channel = self._open_channel()
-        
+        # if no channel set: open a new communication channel to SIM and save it
+        if self._channel is None:
+            self._channel = self._open_channel()
+
         # select the SIGNiT application
         if self.DEBUG: print("\n>> selecting SIM application")
         if not self._select_app():
@@ -163,15 +165,14 @@ class SimProtocol:
         reset. Does not deinitialize/disconnect the LTE.
         """
         self.lte.pppsuspend()
-        #Close logical channel to SIM if open
-        if self.channel != None:
-            if self._close_channel(self.channel):
-                self.channel = None
+        # Close logical channel to SIM if open
+        if self._channel is not None:
+            if self._close_channel(self._channel):
+                self._channel = None
             else:
                 self.lte.pppresume()
-                raise Exception("Unable to close channel {}".format(self.channel))
+                raise Exception("Unable to close channel {}".format(self._channel))
         self.lte.pppresume()
-
 
     def _send_at_cmd(self, cmd):
         if self.DEBUG: print("++ " + cmd)
@@ -179,41 +180,39 @@ class SimProtocol:
         if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
         return result
 
-    def _open_channel(self) -> (int):
+    def _open_channel(self) -> int:
         """
         Open a new logical channel to communicate with the SIM (see ISO 7816 part 4 sect. 6.16)
-        Throws an exception if the SIM does not assign a new channel succesfully. Returns assigned channel.
+        Throws an exception if the SIM does not assign a new channel successfully. Returns assigned channel.
         Always uses channel 0 (basic channel) for request. Does not change the internal channel used by the class.
         :return: channel number (assigned by the SIM)
         """
-        old_channel = self.channel # save lib channel
-        self.channel = 0 #send on basic channel
-        data,code = self._execute(STK_OPEN_CHANNEL)#send 
-        self.channel =old_channel # restore lib channel
+        old_channel = self._channel  # save lib channel
+        self._channel = 0  # send on basic channel
+        data, code = self._execute(STK_OPEN_CHANNEL)  # send
+        self._channel = old_channel  # restore lib channel
 
-        if code != STK_OK and len(data)!=1:
-            raise Exception("couldn't open channel, response code: {}, data: {}".format(code,data))
-        assigned_channel = int.from_bytes(data,"big")
-        if assigned_channel > 3 or assigned_channel < 0:
+        if code != STK_OK or len(data) != 1:
+            raise Exception("couldn't open channel, response code: {}, data: {}".format(code, data))
+
+        assigned_channel = int(data[0])
+        if assigned_channel not in supported_channels:
             raise Exception("unsupported channel number received")
+
         return assigned_channel
 
-    def _close_channel(self,channel_to_close:int) -> bool:
+    def _close_channel(self, channel_to_close: int) -> bool:
         """
         Closes the specified logical channel to the SIM (see ISO 7816 part 4 sect. 6.16)
         Always uses channel 0 (basic channel) for request. Does not change the internal
-        channel used by the class. Returns true if closing was successfull.
+        channel used by the class. Returns true if closing was successful.
         """
-        old_channel = self.channel # save lib channel
-        self.channel = 0 #send on basic channel
-        _,code = self._execute(STK_CLOSE_CHANNEL.format(channel_to_close))#send 
-        self.channel =old_channel # restore lib channel
+        old_channel = self._channel  # save lib channel
+        self._channel = 0  # send on basic channel
+        _, code = self._execute(STK_CLOSE_CHANNEL.format(channel_to_close))  # send
+        self._channel = old_channel  # restore lib channel
 
-        if code == STK_OK :
-            return True
-        else:
-            return False
-        
+        return code == STK_OK
 
     def _execute(self, cmd: str) -> (bytes, str):
         """
@@ -222,18 +221,20 @@ class SimProtocol:
         :param cmd: the command to execute
         :return: a tuple of data, code
         """
-        
-        #check if this is a command where the CLA byte contains channel info (see ISO 7816 part 4 sect. 5.4.1)
-        if cmd[0] == "0" or cmd[0] == "8" or cmd[0] == "A" or cmd[0] == "9":
-            #check if valid channel is set
-            if self.channel == None or self.channel <0 or self.channel >3:
-                raise Exception("invalid channel for sending APDU command: {}".format(self.channel))       
-            #check if APDU command definition indicates non-basic channel or secure messaging
+
+        # check if this is a command where the CLA byte contains channel info (see ISO 7816 part 4 sect. 5.4.1)
+        if cmd[0] in ["0", "8", "A", "9"]:
+            # check if valid channel is set
+            if self._channel not in supported_channels:
+                raise Exception("invalid channel for sending APDU command: {}".format(self._channel))
+            # check if APDU command definition indicates non-basic channel or secure messaging
             if cmd[1] != "0":
-                 raise Exception("CLA byte (0x{}) of command invalid: indicates specific channel or secure messaging (not supported)".format(cmd[0:2]))
-            #encode channel into command
-            channel_char = "{!s:.1}".format(self.channel)
-            cmd =  cmd[0] + channel_char + cmd[2:]
+                raise Exception(
+                    "CLA byte (0x{}) of command invalid: indicates specific channel or secure messaging (not supported)".format(
+                        cmd[0:2]))
+            # encode channel into command
+            channel_char = "{!s:.1}".format(self._channel)
+            cmd = cmd[0] + channel_char + cmd[2:]
 
         at_cmd = 'AT+CSIM={},"{}"'.format(len(cmd), cmd.upper())
         result = self._send_at_cmd(at_cmd)
