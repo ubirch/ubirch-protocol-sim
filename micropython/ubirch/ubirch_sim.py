@@ -146,7 +146,7 @@ class SimProtocol:
 
         #if no channel set: open a new communication channel to SIM and save it
         if self.channel == None:
-            self.channel = self.open_channel()
+            self.channel = self._open_channel()
         
         # select the SIGNiT application
         if self.DEBUG: print("\n>> selecting SIM application")
@@ -164,7 +164,7 @@ class SimProtocol:
         self.lte.pppsuspend()
         #Close logical channel to SIM if open
         if self.channel != None:
-            if self.close_channel(self.channel):
+            if self._close_channel(self.channel):
                 self.channel = None
             else:
                 self.lte.pppresume()
@@ -178,7 +178,7 @@ class SimProtocol:
         if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
         return result
 
-    def open_channel(self) -> (int):
+    def _open_channel(self) -> (int):
         """
         Open a new logical channel to communicate with the SIM (see ISO 7816 part 4 sect. 6.16)
         Throws an exception if the SIM does not assign a new channel succesfully. Returns assigned channel.
@@ -197,7 +197,7 @@ class SimProtocol:
             raise Exception("unsupported channel number received")
         return assigned_channel
 
-    def close_channel(self,channel_to_close:int) -> bool:
+    def _close_channel(self,channel_to_close:int) -> bool:
         """
         Closes the specified logical channel to the SIM (see ISO 7816 part 4 sect. 6.16)
         Always uses channel 0 (basic channel) for request. Does not change the internal
