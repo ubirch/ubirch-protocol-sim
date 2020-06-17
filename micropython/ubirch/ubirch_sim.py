@@ -156,6 +156,19 @@ class SimProtocol:
 
         self.lte.pppresume()
 
+    def deinit(self):
+        """
+        Deintializes the SIM interface. Used in preparation for events like low-power
+        sleep. Closes the APUD communication channel. Does not deinitialize/disconnect the LTE.
+        """
+        #Close logical channel to SIM if open
+        if self.channel != None:
+            if self.close_channel(self.channel):
+                self.channel = None
+            else:
+                raise Exception("Unable to close channel {}".format(self.channel))
+
+
     def _send_at_cmd(self, cmd):
         if self.DEBUG: print("++ " + cmd)
         result = [k for k in self.lte.send_at_cmd(cmd).split('\r\n') if len(k.strip()) > 0]
@@ -184,8 +197,8 @@ class SimProtocol:
     def close_channel(self,channel_to_close:int) -> bool:
         """
         Closes the specified logical channel to the SIM (see ISO 7816 part 4 sect. 6.16)
-        Throws an exception in case of failure. Always uses channel 0 (basic channel) for request.
-        Does not change the internal channel used by the class. Returns true if closing was successfull.
+        Always uses channel 0 (basic channel) for request. Does not change the internal
+        channel used by the class. Returns true if closing was successfull.
         """
         old_channel = self.channel # save lib channel
         self.channel = 0 #send on basic channel
