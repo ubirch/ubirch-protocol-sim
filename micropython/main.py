@@ -24,6 +24,12 @@ cert_id = "ucrt"
 
 lte = LTE()
 
+if machine.reset_cause() != machine.DEEPSLEEP_RESET:
+    #if we are not coming from deepsleep, the modem is probably in a strange state -> reset
+    print("Not coming from sleep, resetting modem to be safe...")
+    lte.reset()
+    lte.init()
+
 if 'wifi' in cfg:
     nb_iot_connection = False
     func_lvl = 4  # disable modem transmit and receive RF circuits
@@ -79,7 +85,8 @@ try:
 except Exception as e:
     set_led(LED_RED)
     sys.print_exception(e)
-    lte_shutdown(lte)
+    ubirch.deinit()
+    lte_shutdown(lte)    
     reset()
 
 # get IMSI from SIM
@@ -98,6 +105,7 @@ else:
     except Exception as e:
         set_led(LED_ORANGE)
         sys.print_exception(e)
+        ubirch.deinit()
         lte_shutdown(lte)
         reset()
 
@@ -133,6 +141,7 @@ except Exception as e:
     except Exception as e:
         set_led(LED_ORANGE)
         sys.print_exception(e)
+        ubirch.deinit()
         lte_shutdown(lte)
         reset()
 
@@ -144,10 +153,10 @@ while True:
     # reinitialize LTE and reconnect to LTE network
     try:
         lte_setup(lte, nb_iot_connection, cfg.get("apn"))
-        ubirch.reinit(pin)
     except Exception as e:
         set_led(LED_PURPLE)
         sys.print_exception(e)
+        ubirch.deinit()
         lte_shutdown(lte)
         reset()
 
@@ -187,6 +196,7 @@ while True:
     except Exception as e:
         set_led(LED_PURPLE)
         sys.print_exception(e)
+        ubirch.deinit()
         lte_shutdown(lte)
         reset()
 
