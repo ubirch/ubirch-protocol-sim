@@ -131,12 +131,16 @@ def set_modem_func_lvl(lte: LTE, func_lvl: int):
     set_func_cmd = "AT+CFUN={}".format(func_lvl)
 
     print("\n>> setting up modem")
-    lte.pppsuspend()
+    modem_suspended = False
+    if lte.isconnected():
+        lte.pppsuspend()
+        modem_suspended = True
 
     # check if modem is already set to the correct functionality level
     result = _send_at_cmd(lte, get_func_cmd)
     if result[-1] == 'OK' and result[-2] == '+CFUN: {}'.format(func_lvl):
-        lte.pppresume()
+        if modem_suspended:
+            lte.pppresume()
         return
 
     # set modem functionality level
@@ -145,10 +149,12 @@ def set_modem_func_lvl(lte: LTE, func_lvl: int):
         # check if modem is set and ready
         result = _send_at_cmd(lte, get_func_cmd)
         if result[-1] == 'OK' and result[-2] == '+CFUN: {}'.format(func_lvl):
-            lte.pppresume()
+            if modem_suspended:
+                lte.pppresume()
             return
 
-    lte.pppresume()
+    if modem_suspended:
+        lte.pppresume()
     raise Exception("setting up modem failed: {}".format(repr(result)))
 
 
@@ -160,9 +166,13 @@ def get_imsi(lte: LTE) -> str:
     get_imsi_cmd = "AT+CIMI"
 
     print("\n>> getting IMSI")
-    lte.pppsuspend()
+    modem_suspended = False
+    if lte.isconnected():
+        lte.pppsuspend()
+        modem_suspended = True
     result = _send_at_cmd(lte, get_imsi_cmd)
-    lte.pppresume()
+    if modem_suspended:
+        lte.pppresume()
     if result[-1] == 'OK' and len(result[0]) == IMSI_LEN:
         return result[0]
 

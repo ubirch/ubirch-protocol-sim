@@ -29,6 +29,8 @@ import ubinascii as binascii
 from network import LTE
 from uuid import UUID
 
+supported_channels = [0, 1, 2, 3]
+
 # AT+CSIM=LENGTH,COMMAND
 
 # Application Identifier
@@ -41,6 +43,8 @@ STK_NF = '6A88'  # not found
 # SIM toolkit commands
 STK_GET_RESPONSE = '00C00000{:02X}'  # get a pending response
 STK_AUTH_PIN = '00200000{:02X}{}'  # authenticate with pin ([1], 2.1.2)
+STK_OPEN_CHANNEL = "0070000001"  # open new logical channel to SIM (ISO 7816 part 4 sect. 6.16)
+STK_CLOSE_CHANNEL = "007080{:02X}00"  # close a logical channel (ISO 7816 part 4 sect. 6.16)
 
 # generic app commands
 STK_APP_SELECT = '00A4040010{}'  # APDU Select Application ([1], 2.1.1)
@@ -119,31 +123,88 @@ def _decode_tag(encoded: bytes) -> [(int, bytes)]:
 class SimProtocol:
     MAX_AT_LENGTH = 110
 
-    def __init__(self, lte: LTE, at_debug: bool = False):
+    def __init__(self, lte: LTE, at_debug: bool = False, channel: int = None):
         """
         Initialize the SIM interface. This executes a command to initialize the modem,
         and waits for the modem to be ready, then selects the SIM application.
 
         The LTE functionality must be enabled upfront.
+
+        If there is already a channel to the SIM it can be specified with channel=X. Supported
+        channel values are 0-3. If not specified a new channel will be requested from the SIM
+        and set automatically.        
         """
+        self._channel = channel
         self.lte = lte
+        self._AT_session_active = False #wether or not the lib currently opened an AT commands session
+        self._AT_session_modem_suspended = False #wether the modem was suspended for an AT session
         self.DEBUG = at_debug
         self.init()
 
     def init(self):
-        self.lte.pppsuspend()
+        self._prepare_AT_session()
 
         if not self._check_sim_access():
-            self.lte.pppresume()
+            self._finish_AT_session()
             raise Exception("couldn't access SIM")
+
+        # if no channel set: open a new communication channel to SIM and save it
+        if self._channel is None:
+            self._channel = self._open_channel()
 
         # select the SIGNiT application
         if self.DEBUG: print("\n>> selecting SIM application")
         if not self._select_app():
-            self.lte.pppresume()
+            self._finish_AT_session()
             raise Exception("selecting SIM application failed")
 
-        self.lte.pppresume()
+        self._finish_AT_session()
+
+    def deinit(self):
+        """
+        Deintializes the SIM interface by closing the APDU communication channel. Used
+        in preparation for events like low-power sleep or a board reset without a SIM/modem
+        reset. Does not deinitialize/disconnect the LTE.
+        """
+        self._prepare_AT_session()
+        # Close logical channel to SIM if open
+        if self._channel is not None and self._channel is not 0:
+            if self._close_channel(self._channel):
+                self._channel = None
+            else:
+                self._finish_AT_session()
+                raise Exception("Unable to close channel {}".format(self._channel))
+        self._finish_AT_session()
+
+    def _prepare_AT_session(self):
+        """
+        Ensures all prerequisites to send AT commands to modem and saves the modems state
+        for restoring it later.
+        """
+        if self._AT_session_active:
+            return
+
+        #if modem is connected, suspend it and remember that we did
+        if self.lte.isconnected():
+            self.lte.pppsuspend()
+            self._AT_session_modem_suspended = True
+        
+        self._AT_session_active = True
+
+    def _finish_AT_session(self):
+        """
+        Restores the modem state after the library is finished sending AT commands.
+        """
+        if not self._AT_session_active:
+            return
+
+        #if modem was suspended for the session, restore it
+        if self._AT_session_modem_suspended:
+            self.lte.pppresume()
+            self._AT_session_modem_suspended = False
+
+        self._AT_session_active = False
+
 
     def _send_at_cmd(self, cmd):
         if self.DEBUG: print("++ " + cmd)
@@ -151,12 +212,62 @@ class SimProtocol:
         if self.DEBUG: print('-- ' + '\r\n-- '.join([r for r in result]))
         return result
 
+    def _open_channel(self) -> int:
+        """
+        Open a new logical channel to communicate with the SIM (see ISO 7816 part 4 sect. 6.16)
+        Throws an exception if the SIM does not assign a new channel successfully. Returns assigned channel.
+        Always uses channel 0 (basic channel) for request. Does not change the internal channel used by the class.
+        :return: channel number (assigned by the SIM)
+        """
+        old_channel = self._channel  # save lib channel
+        self._channel = 0  # send on basic channel
+        data, code = self._execute(STK_OPEN_CHANNEL)  # send
+        self._channel = old_channel  # restore lib channel
+
+        if code != STK_OK or len(data) != 1:
+            raise Exception("couldn't open channel, response code: {}, data: {}".format(code, data))
+
+        assigned_channel = int(data[0])
+        if assigned_channel not in supported_channels:
+            raise Exception("unsupported channel number received")
+
+        return assigned_channel
+
+    def _close_channel(self, channel_to_close: int) -> bool:
+        """
+        Closes the specified logical channel to the SIM (see ISO 7816 part 4 sect. 6.16)
+        Always uses channel 0 (basic channel) for request. Does not change the internal
+        channel used by the class. Returns true if closing was successful.
+        """
+        old_channel = self._channel  # save lib channel
+        self._channel = 0  # send on basic channel
+        _, code = self._execute(STK_CLOSE_CHANNEL.format(channel_to_close))  # send
+        self._channel = old_channel  # restore lib channel
+
+        return code == STK_OK
+
     def _execute(self, cmd: str) -> (bytes, str):
         """
         Execute an APDU command on the SIM card itself.
+        If the APDU contains channel information, encode the channel info into the CLA byte.
         :param cmd: the command to execute
         :return: a tuple of data, code
         """
+
+        # check if this is a command where the CLA byte contains channel info (see ISO 7816 part 4 sect. 5.4.1)
+        if cmd[0] in ["0", "8", "A", "9"]:
+            # check if valid channel is set
+            if self._channel not in supported_channels:
+                raise Exception("invalid channel for sending APDU command: {}".format(self._channel))
+            # check if APDU command definition indicates non-basic channel or secure messaging
+            if cmd[1] != "0":
+                raise Exception(
+                    "CLA byte (0x{}) of command invalid: indicates specific channel or secure messaging (not supported)".format(
+                        cmd[0:2]))
+            # encode channel into command
+            channel_char = "{!s:.1}".format(self._channel)
+            cmd = cmd[0] + channel_char + cmd[2:]
+
         at_cmd = 'AT+CSIM={},"{}"'.format(len(cmd), cmd.upper())
         result = self._send_at_cmd(at_cmd)
 
@@ -256,10 +367,10 @@ class SimProtocol:
         :return: True if the operation was successful
         """
         if self.DEBUG: print("\n>> unlocking SIM")
-        self.lte.pppsuspend()
+        self._prepare_AT_session()
         # FIXME do not print PIN authentication AT command
         data, code = self._execute(STK_AUTH_PIN.format(len(pin), binascii.hexlify(pin).decode()))
-        self.lte.pppresume()
+        self._finish_AT_session()
         if code != STK_OK:
             print(code)
         return code == STK_OK
@@ -271,9 +382,9 @@ class SimProtocol:
         :return: a byte array containing the random bytes
         """
         if self.DEBUG: print("\n>> generating random data with length " + str(length))
-        self.lte.pppsuspend()
+        self._prepare_AT_session()
         data, code = self._execute(STK_APP_RANDOM.format(length))
-        self.lte.pppresume()
+        self._finish_AT_session()
         if code == STK_OK:
             return data
         raise Exception(code)
@@ -283,17 +394,17 @@ class SimProtocol:
         Delete all existing secure memory entries.
         """
         print("\n>> erasing ALL SS entries")
-        self.lte.pppsuspend()
+        self._prepare_AT_session()
         data, code = self._execute(STK_APP_DELETE_ALL)
-        self.lte.pppresume()
+        self._finish_AT_session()
 
         return data, code
 
     def entry_exists(self, entry_id: str):
         if self.DEBUG: print("\n>> looking for entry ID \"{}\"".format(entry_id))
-        self.lte.pppsuspend()
+        self._prepare_AT_session()
         _, code = self._execute(STK_APP_SS_SELECT.format(len(entry_id), binascii.hexlify(entry_id).decode()))
-        self.lte.pppresume()
+        self._finish_AT_session()
         return code[0:2] == '61'
 
     def store_public_key(self, entry_id: str, uuid: UUID, pub_key: bytes):
@@ -317,9 +428,9 @@ class SimProtocol:
                             (0xC2, bytes([0x0B, 0x01, 0x00])),  # TYPE_EC_FP_PUBLIC, LENGTH_EC_FP_256
                             (0xC3, bytes([0x04]) + pub_key)  # Public key to be stored (SEC format)
                             ])
-        self.lte.pppsuspend()
+        self._prepare_AT_session()
         data, code = self._send_cmd_in_chunks(STK_APP_KEY_STORE, args)
-        self.lte.pppresume()
+        self._finish_AT_session()
         if code != STK_OK:
             raise Exception("storing key failed: {}".format(code))
 
@@ -330,12 +441,12 @@ class SimProtocol:
         :return: the public key bytes
         """
         if self.DEBUG: print("\n>> getting public key with entry ID \"{}\"".format(entry_id))
-        self.lte.pppsuspend()
+        self._prepare_AT_session()
         # select SS public key entry
         try:
             data, code = self._select_ss_entry(entry_id)
         except Exception:
-            self.lte.pppresume()
+            self._finish_AT_session()
             raise
         if code == STK_OK:
             # get the key
@@ -343,11 +454,11 @@ class SimProtocol:
             data, code = self._execute(STK_APP_KEY_GET.format(int(len(args) / 2), args))
             data, code = self._get_response(code)
             if code == STK_OK:
-                self.lte.pppresume()
+                self._finish_AT_session()
                 # remove the fixed 0x04 prefix from the key entry_id
                 return [tag[1][1:] for tag in _decode_tag(data) if tag[0] == 0xc3][0]
 
-        self.lte.pppresume()
+        self._finish_AT_session()
         raise Exception(code)
 
     def generate_key(self, entry_id: str, uuid: UUID):
@@ -371,9 +482,9 @@ class SimProtocol:
                             (0xC0, uuid.hex),
                             (0xC1, bytes([0x03]))
                             ])
-        self.lte.pppsuspend()
+        self._prepare_AT_session()
         data, code = self._execute(STK_APP_KEY_GENERATE.format(int(len(args) / 2), args))
-        self.lte.pppresume()
+        self._finish_AT_session()
         if code != STK_OK:
             raise Exception(code)
 
@@ -384,12 +495,12 @@ class SimProtocol:
         :return: the entry title
         """
         if self.DEBUG: print("\n>> getting entry title of entry with ID \"{}\"".format(entry_id))
-        self.lte.pppsuspend()
+        self._prepare_AT_session()
         # select SS entry
         try:
             data, code = self._select_ss_entry(entry_id)
         finally:
-            self.lte.pppresume()
+            self._finish_AT_session()
         if code == STK_OK:
             # get the entry title
             return [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc0][0]
@@ -411,11 +522,11 @@ class SimProtocol:
         :return: the public key bytes
         """
         if self.DEBUG: print("\n>> getting public key associated with entry title \"{}\"".format(uuid.hex))
-        self.lte.pppsuspend()
+        self._prepare_AT_session()
         # get the entry ID that has UUID as entry title
         data, code = self._execute(STK_APP_SS_ENTRY_ID_GET.format(int(len(uuid.hex) / 2), uuid.hex))
         data, code = self._get_response(code)
-        self.lte.pppresume()
+        self._finish_AT_session()
         if code == STK_OK:
             key_name = [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc4][0]
             # get the public key with that entry ID
@@ -450,11 +561,11 @@ class SimProtocol:
             (0xE5, cert_args)
         ])
 
-        self.lte.pppsuspend()
+        self._prepare_AT_session()
         _, code = self._send_cmd_in_chunks(STK_APP_CSR_GENERATE_FIRST, args)
         data, code = self._get_response(code)  # get first part of CSR
         data, code = self._get_more_data(code, data, STK_APP_CSR_GENERATE_NEXT)  # get next part of CSR
-        self.lte.pppresume()
+        self._finish_AT_session()
         if code == STK_OK:
             return data
 
@@ -467,12 +578,12 @@ class SimProtocol:
         :return: the certificate (bytes)
         """
         if self.DEBUG: print("\n>> getting X.509 certificate with entry ID \"{}\"".format(certificate_entry_id))
-        self.lte.pppsuspend()
+        self._prepare_AT_session()
         # select SS certificate entry
         try:
             data, code = self._select_ss_entry(certificate_entry_id)
         except Exception:
-            self.lte.pppresume()
+            self._finish_AT_session()
             raise
 
         if code == STK_OK:
@@ -480,10 +591,10 @@ class SimProtocol:
             data, code = self._execute(STK_APP_CERT_GET.format(0))
             data, code = self._get_more_data(code, data, STK_APP_CERT_GET.format(1))
             if code == STK_OK:
-                self.lte.pppresume()
+                self._finish_AT_session()
                 return [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc3][0]
 
-        self.lte.pppresume()
+        self._finish_AT_session()
         raise Exception(code)
 
     def sign(self, entry_id: str, value: bytes, protocol_version: int, hash_before_sign: bool = False) -> bytes:
@@ -501,17 +612,17 @@ class SimProtocol:
             if self.DEBUG: print(">> data will be hashed by SIM before singing")
             protocol_version |= 0x40  # set flag for automatic hashing
         args = _encode_tag([(0xC4, ('_' + entry_id).encode()), (0xD0, bytes([0x21]))])
-        self.lte.pppsuspend()
+        self._prepare_AT_session()
         _, code = self._execute(STK_APP_SIGN_INIT.format(protocol_version, int(len(args) / 2), args))
         if code == STK_OK:
             args = binascii.hexlify(value).decode()
             _, code = self._send_cmd_in_chunks(STK_APP_SIGN_FINAL, args)
             data, code = self._get_response(code)
             if code == STK_OK:
-                self.lte.pppresume()
+                self._finish_AT_session()
                 return data
 
-        self.lte.pppresume()
+        self._finish_AT_session()
         raise Exception(code)
 
     def verify(self, entry_id: str, value: bytes, protocol_version: int) -> bool:
@@ -524,18 +635,18 @@ class SimProtocol:
         :return: the verification response or throws an exceptions if failed
         """
         args = _encode_tag([(0xC4, entry_id.encode()), (0xD0, bytes([0x21]))])
-        self.lte.pppsuspend()
+        self._prepare_AT_session()
         _, code = self._execute(STK_APP_VERIFY_INIT.format(protocol_version, int(len(args) / 2), args))
         if code == STK_OK:
             args = binascii.hexlify(value).decode()
             _, code = self._send_cmd_in_chunks(STK_APP_VERIFY_FINAL, args)
-            self.lte.pppresume()
+            self._finish_AT_session()
             if code == STK_OK:
                 return True
             if code == '6988':
                 return False
 
-        self.lte.pppresume()
+        self._finish_AT_session()
         raise Exception(code)
 
     def message_signed(self, name: str, payload: bytes, hash_before_sign: bool = False) -> bytes:
