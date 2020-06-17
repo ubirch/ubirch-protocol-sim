@@ -158,8 +158,9 @@ class SimProtocol:
 
     def deinit(self):
         """
-        Deintializes the SIM interface. Used in preparation for events like low-power
-        sleep. Closes the APUD communication channel. Does not deinitialize/disconnect the LTE.
+        Deintializes the SIM interface by closing the APDU communication channel. Used
+        in preparation for events like low-power sleep or a board reset without a SIM/modem
+        reset. Does not deinitialize/disconnect the LTE.
         """
         self.lte.pppsuspend()
         #Close logical channel to SIM if open
