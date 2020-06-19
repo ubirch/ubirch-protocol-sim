@@ -268,8 +268,12 @@ func (p *Protocol) authenticate(pin string) error {
 // Always uses channel 0 (basic channel) for request.  Sets the protocol object's internal channel if operation
 // was successful. Returns error if the SIM does not assign a new channel successfully.
 func (p *Protocol) openChannel() error {
+	// do not open a new channel if there is a channel already in use
+	if p.channel != 0 {
+		return nil // todo return error?
+	}
+
 	// open a new channel via channel 0 (basic channel)
-	p.channel = 0 // todo if p.channel != 0 { close channel } ?
 	data, code, err := p.execute(stkOpenChannel)
 	if err != nil {
 		return err
@@ -294,6 +298,11 @@ func (p *Protocol) openChannel() error {
 // Always uses channel 0 (basic channel) for request. Resets the protocol object's internal channel to 0 if operation
 // was successful. Returns error if closing channel fails.
 func (p *Protocol) closeChannel() error {
+	// make sure not to close channel 0 (basic channel)
+	if p.channel == 0 {
+		return nil // todo return error?
+	}
+
 	// close the channel via channel 0 (basic channel)
 	channel := p.channel
 	p.channel = 0
