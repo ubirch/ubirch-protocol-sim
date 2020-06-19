@@ -318,24 +318,38 @@ func (p *Protocol) closeChannel() error {
 	return nil
 }
 
-// Initialize the SIM card application by authenticating with the SIM with the given pin.
-func (p *Protocol) Init(pin string) error {
-	err := p.openChannel()
-	if err != nil {
-		return err
-	}
-
-	// sometimes the modem is not ready yet, so we try again, if it fails
+func (p *Protocol) checkSIMAccess() error {
+	// wait for SIM to be ready
 	for i := 0; i < 3; i++ {
-		err = p.selectApplet()
-		if err == nil {
-			break
+		r, err := p.Send("AT+CSIM=?")
+		if err != nil {
+			return fmt.Errorf("SERIAL PORT ERROR: %v", err)
+		}
+		if r[0] == "OK" {
+			return nil
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if err != nil {
+	return fmt.Errorf("accessing SIM failed")
+}
+
+// Initialize the SIM card application by authenticating with the SIM with the given pin.
+func (p *Protocol) Init(pin string) error {
+	if err := p.checkSIMAccess(); err != nil {
 		return err
 	}
+
+	// open a separate logical channel to communicate with the SIM
+	if err := p.openChannel(); err != nil {
+		return err
+	}
+
+	// select the SIGNiT applet
+	if err := p.selectApplet(); err != nil {
+		return err
+	}
+
+	// unlock the SIM
 	return p.authenticate(pin)
 }
 
