@@ -24,7 +24,8 @@ type SimInterface interface {
 
 type Protocol struct {
 	SimInterface
-	Debug bool
+	Debug   bool
+	channel int
 }
 
 type Tag struct {
@@ -62,8 +63,10 @@ const (
 	stkAppDef = "D2760001180002FF34108389C0028B02"
 
 	// SIM toolkit commands
-	stkGetResponse = "00C00000%02X"   // get a pending response
-	stkAuthPin     = "00200000%02X%s" // authenticate with pin ([1], 2.1.2)
+	stkGetResponse  = "00C00000%02X"   // get a pending response
+	stkAuthPin      = "00200000%02X%s" // authenticate with pin ([1], 2.1.2)
+	stkOpenChannel  = "0070000001"     // open new logical channel to SIM (ISO 7816 part 4 sect. 6.16)
+	stkCloseChannel = "007080%02X00"   // close a logical channel (ISO 7816 part 4 sect. 6.16)
 
 	// Generic app commands
 	stkAppSelect              = "00A4040010%s"   // APDU Select Application ([1], 2.1.1)
@@ -122,11 +125,11 @@ func (p *Protocol) encodeBinary(tags []Tag) ([]byte, error) {
 
 // encode Tags into a hex encoded string.
 func (p *Protocol) encode(tags []Tag) (string, error) {
-	binary, err := p.encodeBinary(tags)
+	bin, err := p.encodeBinary(tags)
 	if err != nil {
 		return "", err
 	}
-	return strings.ToUpper(hex.EncodeToString(binary)), nil
+	return strings.ToUpper(hex.EncodeToString(bin)), nil
 }
 
 // decode Tags from binary format.
@@ -261,9 +264,58 @@ func (p *Protocol) authenticate(pin string) error {
 	return nil
 }
 
+// Open a new logical channel to communicate with the SIM (see ISO 7816 part 4 sect. 6.16)
+// Always uses channel 0 (basic channel) for request.  Sets the protocol object's internal channel if operation
+// was successful. Returns error if the SIM does not assign a new channel successfully.
+func (p *Protocol) openChannel() error {
+	// open a new channel via channel 0 (basic channel)
+	p.channel = 0 // todo if p.channel != 0 { close channel } ?
+	data, code, err := p.execute(stkOpenChannel)
+	if err != nil {
+		return err
+	}
+	if code != ApduOk {
+		return fmt.Errorf("APDU error: %x, opening new channel failed", code)
+	}
+
+	// make sure the operation returned a valid channel number
+	channel := int(data[0])
+	if len(data) != 1 || channel < 1 || channel > 3 {
+		return fmt.Errorf("opening new channel failed, response not a valid channel number: %s", data)
+	}
+
+	// set the channel
+	p.channel = channel
+
+	return nil
+}
+
+// Closes the logical channel used by the protocol object to communicate with the SIM (see ISO 7816 part 4 sect. 6.16)
+// Always uses channel 0 (basic channel) for request. Resets the protocol object's internal channel to 0 if operation
+// was successful. Returns error if closing channel fails.
+func (p *Protocol) closeChannel() error {
+	// close the channel via channel 0 (basic channel)
+	channel := p.channel
+	p.channel = 0
+	_, code, err := p.execute(stkCloseChannel, channel)
+	if err != nil {
+		p.channel = channel
+		return err
+	}
+	if code != ApduOk {
+		p.channel = channel
+		return fmt.Errorf("APDU error: %x, closing channel %d failed", code, channel)
+	}
+	return nil
+}
+
 // Initialize the SIM card application by authenticating with the SIM with the given pin.
 func (p *Protocol) Init(pin string) error {
-	var err error
+	err := p.openChannel()
+	if err != nil {
+		return err
+	}
+
 	// sometimes the modem is not ready yet, so we try again, if it fails
 	for i := 0; i < 3; i++ {
 		err = p.selectApplet()
@@ -276,6 +328,10 @@ func (p *Protocol) Init(pin string) error {
 		return err
 	}
 	return p.authenticate(pin)
+}
+
+func (p *Protocol) Deinit() error {
+	return p.closeChannel()
 }
 
 // selectSSEntryID selects an entry in the secure storage using the entry ID, see [1] 2.1.4
