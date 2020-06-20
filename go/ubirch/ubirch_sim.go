@@ -170,6 +170,15 @@ func (p *Protocol) decode(s string, debug ...bool) ([]Tag, error) {
 // executes an APDU command and returns the response
 func (p *Protocol) execute(format string, v ...interface{}) (string, uint16, error) {
 	cmd := fmt.Sprintf(format, v...)
+	// check if this is a command where the CLA byte contains channel info (see ISO 7816 part 4 sect. 5.4.1)
+	if cmd[0:1] == "0" || cmd[0:1] == "8" || cmd[0:1] == "9" || cmd[0:1] == "A" {
+		if cmd[1:2] != "0" {
+			return "", 0, fmt.Errorf("invalid CLA byte (0x%s) of command %s: indicates specific channel or secure messaging (not supported)", cmd[0:2], cmd)
+		}
+		// encode channel into command
+		cmd = cmd[:1] + string(p.channel) + cmd[2:]
+	}
+
 	atcmd := fmt.Sprintf("AT+CSIM=%d,\"%s\"", len(cmd), cmd)
 	response, err := p.Send(atcmd)
 	if err != nil {
