@@ -2,6 +2,7 @@ package ubirch
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"regexp"
 	"strings"
@@ -107,4 +108,20 @@ func (sp *SimSerialPort) Init() {
 func (sp *SimSerialPort) Close() error {
 	err := sp.Port.Close()
 	return err
+}
+
+func (sp *SimSerialPort) GetIMSI() (string, error) {
+	if sp.Debug {
+		log.Println(">> get IMSI")
+	}
+	const IMSI_LEN = 15
+
+	response, err := sp.Send("AT+CIMI")
+	if err != nil {
+		return "", err
+	}
+	if len(response[0]) != IMSI_LEN || response[1] != "OK" {
+		return "", fmt.Errorf(response[0])
+	}
+	return response[0], err
 }
