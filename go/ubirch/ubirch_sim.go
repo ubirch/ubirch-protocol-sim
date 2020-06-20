@@ -176,7 +176,7 @@ func (p *Protocol) execute(format string, v ...interface{}) (string, uint16, err
 			return "", 0, fmt.Errorf("invalid CLA byte (0x%s) of command %s: indicates specific channel or secure messaging (not supported)", cmd[0:2], cmd)
 		}
 		// encode channel into command
-		cmd = cmd[:1] + string(p.channel) + cmd[2:]
+		cmd = cmd[:1] + fmt.Sprintf("%X", p.channel) + cmd[2:]
 	}
 
 	atcmd := fmt.Sprintf("AT+CSIM=%d,\"%s\"", len(cmd), cmd)
@@ -292,8 +292,8 @@ func (p *Protocol) openChannel() error {
 	}
 
 	// make sure the operation returned a valid channel number
-	channel := int(data[0])
-	if len(data) != 1 || channel < 1 || channel > 3 {
+	channel, err := strconv.Atoi(data)
+	if err != nil || channel < 1 || channel > 3 {
 		return fmt.Errorf("opening new channel failed, response not a valid channel number: %s", data)
 	}
 
