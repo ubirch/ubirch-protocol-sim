@@ -82,31 +82,24 @@ func (sp *SimSerialPort) Init() {
 	}
 
 	// check if the modem is online and initialize it
-	r, err := sp.Send("AT+CFUN?")
-	if err != nil || r[0] != "+CFUN: 4" {
-		// setup modem
-		for {
-			_, err := sp.Send("AT+CFUN=4,1")
-			if err == nil {
-				break
-			}
+	for {
+		r, err := sp.Send("AT+CFUN?")
+		if err != nil {
+			log.Fatalf("SERIAL PORT ERROR: %v", err)
+		}
+		if r[len(r)-1] != "OK" {
+			continue
+		}
+		if r[len(r)-2] == "+CFUN: 4" {
+			break
 		}
 
-	loop:
-		for {
-			r, err := sp.Send("AT+CFUN?")
-			if err != nil {
-				log.Printf("error initializing modem: %v, %v\n", err, r)
-				//os.Exit(1)
-				continue
-			}
-			for _, n := range r {
-				if "+CFUN: 4" == n {
-					break loop
-				}
-			}
+		// set modem to minimal functionality
+		_, err = sp.Send("AT+CFUN=4,1")
+		if err != nil {
+			log.Fatalf("SERIAL PORT ERROR: %v", err)
 		}
-
+		time.Sleep(time.Second)
 	}
 }
 
