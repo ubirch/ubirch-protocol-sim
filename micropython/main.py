@@ -113,9 +113,7 @@ else:
         f.write(pin.encode())
 
 # unlock SIM
-if not ubirch.sim_auth(pin):
-    print("ERROR: PIN not accepted")
-    sys.exit(1)
+ubirch.sim_auth(pin)
 
 # get UUID from SIM
 device_uuid = ubirch.get_uuid(device_name)
