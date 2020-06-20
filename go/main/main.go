@@ -55,13 +55,11 @@ func main() {
 		log.Fatalf("loading configuration failed: %v", err)
 	}
 
-	sim := ubirch.Protocol{SimInterface: &serialPort, Debug: conf.Debug}
-
 	// check if PIN is set in config and bootstrap if unset
 	PIN := conf.Pin
 	if PIN == "" {
 		// get SIM IMSI
-		imsi, err := sim.GetIMSI()
+		imsi, err := serialPort.GetIMSI()
 		if err != nil {
 			log.Fatalf("getting IMSI failed: %v", err)
 		}
@@ -73,6 +71,10 @@ func main() {
 		}
 	}
 
+	sim := ubirch.Protocol{SimInterface: &serialPort, Debug: conf.Debug}
+	//noinspection GoUnhandledErrorResult
+	defer sim.Deinit()
+
 	// initialize the ubirch protocol sim interface
 	err = sim.Init(PIN)
 	if err != nil {
@@ -82,25 +84,28 @@ func main() {
 	key_name := "ukey"
 	cert_name := "ucrt"
 
-	//// generate a key pair
-	//// FIXME overwrites existing keys
-	//uuidBytes, err := hex.DecodeString(conf.Uuid)
-	//if err != nil {
-	//	log.Fatalf("failed to decode hex string: %v", err)
-	//}
-	//uid, err := uuid.FromBytes(uuidBytes)
-	//if err != nil {
-	//	log.Fatalf("failed to parse UUID: %v", err)
-	//}
-	//err = sim.GenerateKey(key_name, uid)
-	//if err != nil {
-	//	log.Printf("generating key \"%s\" failed: %v", key_name, err)
-	//}
-
 	// get the public key from SIM card
 	key, err := sim.GetKey(key_name)
 	if err != nil {
-		log.Fatalf("getting key %s failed: %v", key_name, err)
+		log.Printf("getting key %s failed: %v", key_name, err)
+
+		// generate a key pair
+		uuidBytes, err := hex.DecodeString(conf.Uuid)
+		if err != nil {
+			log.Fatalf("failed to decode hex string: %v", err)
+		}
+		uid, err := uuid.FromBytes(uuidBytes)
+		if err != nil {
+			log.Fatalf("failed to parse UUID: %v", err)
+		}
+		err = sim.GenerateKey(key_name, uid)
+		if err != nil {
+			log.Fatalf("generating key \"%s\" failed: %v", key_name, err)
+		}
+		key, err = sim.GetKey(key_name)
+		if err != nil {
+			log.Fatalf("getting key %s failed: %v", key_name, err)
+		}
 	}
 	log.Printf("public key [base64]: %s", base64.StdEncoding.EncodeToString(key))
 	log.Printf("public key [hex]:    %s", hex.EncodeToString(key))
@@ -112,36 +117,12 @@ func main() {
 	}
 	log.Printf("UUID: %s", uid.String())
 
-	//// generate CSR
-	//csr, err := sim.GenerateCSR(key_name, uid)
-	//if err != nil {
-	//	log.Fatalf("unable to produce CSR: %v", err)
-	//} else {
-	//	log.Printf("CSR: " + hex.EncodeToString(csr))
-	//}
-	//
-	//// read certificate from file
-	//cert, err := ioutil.ReadFile("sim_cert.txt")
-	//if err != nil {
-	//	log.Fatalf("can't read certificate from file")
-	//}
-	//certBytes, err := hex.DecodeString(string(cert))
-	//
-	//// store certificate in SIM card
-	//err = sim.StoreCertificate(cert_name, uid, certBytes)
-	//if err != nil {
-	//	log.Fatalf("storing certificate failed. %s", err)
-	//} else {
-	//	log.Println("certificate stored")
-	//}
-	//
-	//// update certificate
-	//err = sim.UpdateCertificate(cert_name, certBytes)
-	//if err != nil {
-	//	log.Fatalf("can't update certificate on SIM")
-	//} else {
-	//	log.Println("updated certificate on SIM")
-	//}
+	// create a X.509 certificate signing request
+	csr, err := sim.GenerateCSR(key_name)
+	if err != nil {
+		log.Fatalf("unable to create CSR: %v", err)
+	}
+	log.Printf("CSR: " + hex.EncodeToString(csr))
 
 	// get X.509 certificate from SIM card
 	cert, err := sim.GetCertificate(cert_name)
