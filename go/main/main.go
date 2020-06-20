@@ -43,7 +43,7 @@ func main() {
 		log.Printf("serial port open failed: %v\n", err)
 		os.Exit(1)
 	}
-	serialPort := ubirch.SimSerialPort{Port: s, Debug: false}
+	serialPort := ubirch.SimSerialPort{Port: s, Debug: true}
 	serialPort.Init()
 
 	//noinspection GoUnhandledErrorResult
@@ -57,22 +57,21 @@ func main() {
 
 	sim := ubirch.Protocol{SimInterface: &serialPort, Debug: conf.Debug}
 
-	// get SIM IMSI
-	imsi, err := sim.GetIMSI()
-	if err != nil {
-		log.Fatalf("getting IMSI failed: %v", err)
-	}
-	log.Printf("IMSI: %s", imsi)
-
 	// check if PIN is set in config and bootstrap if unset
 	PIN := conf.Pin
 	if PIN == "" {
+		// get SIM IMSI
+		imsi, err := sim.GetIMSI()
+		if err != nil {
+			log.Fatalf("getting IMSI failed: %v", err)
+		}
+		log.Printf("IMSI: %s", imsi)
+
 		PIN, err = getPIN(imsi, conf)
 		if err != nil {
 			log.Fatalf("bootstrapping failed: %v", err)
 		}
 	}
-	log.Printf("PIN: %s", PIN)
 
 	// initialize the ubirch protocol sim interface
 	err = sim.Init(PIN)
@@ -151,10 +150,6 @@ func main() {
 	}
 	log.Printf("retrieved certificate from SIM: %x", cert)
 
-	// register public key at the UBIRCH backend
-	// TODO registerKey(cert, conf) // not implemented in backend yet
-	registerKeyLegacy(&sim, key_name, uid, conf)
-
 	// send a signed message
 	type Payload struct {
 		Timestamp int
@@ -230,34 +225,6 @@ func getPIN(imsi string, conf Config) (string, error) {
 	}
 	// bootstrap SIM identity and retrieve PIN
 	return bootstrap(imsi, conf.BootstrapService, conf.Password)
-}
-
-// send a self signed JSON formatted key registration message to the UBIRCH backend
-func registerKeyLegacy(p *ubirch.Protocol, name string, uid uuid.UUID, conf Config) {
-	if conf.Password == "" {
-		return
-	}
-	// todo this will be replaced by the X.509 cert from SIM card
-	// generate a self signed certificate for the public key
-	cert, err := getSignedCertificate(p, name, uid)
-	if err != nil {
-		log.Fatalf("could not generate key certificate: %v", err)
-	}
-	log.Printf("certificate: %s", string(cert))
-
-	statusCode, respBody, err := post(cert, conf.KeyService, map[string]string{"Content-Type": "application/json"})
-	if err != nil {
-		log.Fatalf("ERROR: sending key registration failed: %v", err)
-	}
-	if statusCode != http.StatusOK {
-		log.Fatalf("ERROR: request to %s failed with status code %d: %s", conf.KeyService, statusCode, respBody)
-	}
-	log.Printf("key registration successful. response: %s", string(respBody))
-}
-
-// send a X.509 public key certificate to the UBIRCH backend
-func registerKey(cert []byte, conf Config) error {
-	return fmt.Errorf("not implemented yet")
 }
 
 // send UPP to the UBIRCH backend
