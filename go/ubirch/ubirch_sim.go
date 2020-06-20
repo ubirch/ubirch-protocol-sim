@@ -279,7 +279,7 @@ func (p *Protocol) authenticate(pin string) error {
 func (p *Protocol) openChannel() error {
 	// do not open a new channel if there is a channel already in use
 	if p.channel != 0 {
-		return nil // todo return error?
+		return nil
 	}
 
 	// open a new channel via channel 0 (basic channel)
@@ -309,7 +309,7 @@ func (p *Protocol) openChannel() error {
 func (p *Protocol) closeChannel() error {
 	// make sure not to close channel 0 (basic channel)
 	if p.channel == 0 {
-		return nil // todo return error?
+		return nil
 	}
 
 	// close the channel via channel 0 (basic channel)
@@ -564,32 +564,6 @@ func (p *Protocol) Random(len int) ([]byte, error) {
 	return hex.DecodeString(r)
 }
 
-func (p *Protocol) GetIMSI() (string, error) {
-	if p.Debug {
-		log.Println(">> get IMSI")
-	}
-	const IMSI_LEN = 15
-	var imsi string
-	var err error
-	// sometimes the modem is not ready to retrieve the IMSI yet, so we try again, if it fails
-	for i := 0; i < 3; i++ {
-		time.Sleep(10 * time.Millisecond)
-		var response []string
-		response, err = p.Send("AT+CIMI")
-		if err != nil {
-			continue
-		}
-		if len(response[0]) != IMSI_LEN || response[1] != "OK" {
-			err = fmt.Errorf(response[0])
-			continue
-		}
-		imsi = response[0]
-		err = nil
-		break
-	}
-	return imsi, err
-}
-
 //PutPubKey stores an ECC public key to the SIM cards secure storage
 func (p *Protocol) PutPubKey(name string, uid uuid.UUID, pubKey []byte) error {
 	if p.Debug {
@@ -769,10 +743,15 @@ func (p *Protocol) GenerateKey(name string, uid uuid.UUID) error {
 	return err
 }
 
-func (p *Protocol) GenerateCSR(entryID string, uid uuid.UUID) ([]byte, error) {
+func (p *Protocol) GenerateCSR(entryID string) ([]byte, error) {
 	if p.Debug {
 		log.Printf(">> generate CSR for \"%s\"", entryID)
 	}
+	uid, err := p.GetUUID(entryID)
+	if err != nil {
+		return nil, fmt.Errorf("could not get UUID for \"%s\"", entryID)
+	}
+
 	certAttributes, err := p.encodeBinary([]Tag{
 		{0xD4, []byte("DE")},
 		{0xD5, []byte("Berlin")},
