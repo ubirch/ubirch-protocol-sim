@@ -104,12 +104,6 @@ func (sp *SimSerialPort) Init() {
 	}
 }
 
-// Close the serial port
-func (sp *SimSerialPort) Close() error {
-	err := sp.Port.Close()
-	return err
-}
-
 func (sp *SimSerialPort) GetIMSI() (string, error) {
 	if sp.Debug {
 		log.Println(">> get IMSI")

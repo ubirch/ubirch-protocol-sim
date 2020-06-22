@@ -32,6 +32,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// load configuration from file
+	conf := Config{}
+	err = conf.Load("config.json")
+	if err != nil {
+		log.Fatalf("loading configuration failed: %v", err)
+	}
+
 	mode := &serial.Mode{
 		BaudRate: baud,
 		Parity:   serial.NoParity,
@@ -43,28 +50,22 @@ func main() {
 		log.Printf("serial port open failed: %v\n", err)
 		os.Exit(1)
 	}
-	serialPort := ubirch.SimSerialPort{Port: s, Debug: true}
-	serialPort.Init()
-
+	serialPort := ubirch.SimSerialPort{Port: s, Debug: conf.Debug}
 	//noinspection GoUnhandledErrorResult
 	defer serialPort.Close()
 
-	conf := Config{}
-	err = conf.Load("config.json")
+	serialPort.Init()
+
+	// get SIM IMSI
+	imsi, err := serialPort.GetIMSI()
 	if err != nil {
-		log.Fatalf("loading configuration failed: %v", err)
+		log.Fatalf("getting IMSI failed: %v", err)
 	}
+	log.Printf("IMSI: %s", imsi)
 
 	// check if PIN is set in config and bootstrap if unset
 	PIN := conf.Pin
 	if PIN == "" {
-		// get SIM IMSI
-		imsi, err := serialPort.GetIMSI()
-		if err != nil {
-			log.Fatalf("getting IMSI failed: %v", err)
-		}
-		log.Printf("IMSI: %s", imsi)
-
 		PIN, err = getPIN(imsi, conf)
 		if err != nil {
 			log.Fatalf("bootstrapping failed: %v", err)
@@ -84,52 +85,47 @@ func main() {
 	key_name := "ukey"
 	cert_name := "ucrt"
 
-	// get the public key from SIM card
-	key, err := sim.GetKey(key_name)
-	if err != nil {
-		log.Printf("getting key %s failed: %v", key_name, err)
+	//// generate a key pair !!overwrites existing keys!!
+	//uuidBytes, err := hex.DecodeString(conf.Uuid)
+	//if err != nil {
+	//	log.Fatalf("failed to decode hex string: %v", err)
+	//}
+	//uid, err := uuid.FromBytes(uuidBytes)
+	//if err != nil {
+	//	log.Fatalf("failed to parse UUID: %v", err)
+	//}
+	//err = sim.GenerateKey(key_name, uid)
+	//if err != nil {
+	//	log.Printf("generating key \"%s\" failed: %v", key_name, err)
+	//}
 
-		// generate a key pair
-		uuidBytes, err := hex.DecodeString(conf.Uuid)
-		if err != nil {
-			log.Fatalf("failed to decode hex string: %v", err)
-		}
-		uid, err := uuid.FromBytes(uuidBytes)
-		if err != nil {
-			log.Fatalf("failed to parse UUID: %v", err)
-		}
-		err = sim.GenerateKey(key_name, uid)
-		if err != nil {
-			log.Fatalf("generating key \"%s\" failed: %v", key_name, err)
-		}
-		key, err = sim.GetKey(key_name)
-		if err != nil {
-			log.Fatalf("getting key %s failed: %v", key_name, err)
-		}
-	}
-	log.Printf("public key [base64]: %s", base64.StdEncoding.EncodeToString(key))
-	log.Printf("public key [hex]:    %s", hex.EncodeToString(key))
-
-	// get the UUID corresponding to the key
+	// get the UUID associated with the key entry ID
 	uid, err := sim.GetUUID(key_name)
 	if err != nil {
 		log.Fatalf("getting UUID from entry \"%s\" failed: %s", key_name, err)
 	}
 	log.Printf("UUID: %s", uid.String())
 
-	// create a X.509 certificate signing request
+	// get the public key from SIM card
+	key, err := sim.GetKey(key_name)
+	if err != nil {
+		log.Fatalf("getting key %s failed: %v", key_name, err)
+	}
+	log.Printf("public key [base64]: %s", base64.StdEncoding.EncodeToString(key))
+
+	// create a X.509 certificate signing request (CSR)
 	csr, err := sim.GenerateCSR(key_name)
 	if err != nil {
 		log.Fatalf("unable to create CSR: %v", err)
 	}
-	log.Printf("CSR: " + hex.EncodeToString(csr))
+	log.Printf("X.509 CSR: " + hex.EncodeToString(csr))
 
 	// get X.509 certificate from SIM card
 	cert, err := sim.GetCertificate(cert_name)
 	if err != nil {
 		log.Fatalf("retrieving certificate from SIM failed. %s", err)
 	}
-	log.Printf("retrieved certificate from SIM: %x", cert)
+	log.Printf("X.509 certificate: %x", cert)
 
 	// send a signed message
 	type Payload struct {
@@ -147,7 +143,7 @@ func main() {
 
 	// create a hash from the payload
 	digest := sha256.Sum256(pRendered)
-	log.Printf("data hash [base64]: %s", base64.StdEncoding.EncodeToString(digest[:]))
+	log.Printf("hash [base64]: %s", base64.StdEncoding.EncodeToString(digest[:]))
 
 	// create a signed UPP message
 	//upp, err := sim.Sign(name, digest[:], ubirch.Signed, false) // insert hash into the UPP
@@ -178,7 +174,7 @@ func main() {
 
 		// create a hash from the payload
 		digest := sha256.Sum256(pRendered)
-		log.Printf("data hash [base64]: %s", base64.StdEncoding.EncodeToString(digest[:]))
+		log.Printf("hash [base64]: %s", base64.StdEncoding.EncodeToString(digest[:]))
 
 		// create a signed UPP message
 		//upp, err := sim.Sign(name, digest[:], ubirch.Chained, false)
