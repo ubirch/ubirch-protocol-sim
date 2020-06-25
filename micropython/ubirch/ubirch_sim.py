@@ -234,18 +234,20 @@ class SimProtocol:
 
         return assigned_channel
 
-    def _close_channel(self, channel_to_close: int) -> bool:
+    def _close_channel(self, channel_to_close: int):
         """
         Closes the specified logical channel to the SIM (see ISO 7816 part 4 sect. 6.16)
         Always uses channel 0 (basic channel) for request. Does not change the internal
-        channel used by the class. Returns true if closing was successful.
+        channel used by the class.
+        Throws an exception if closing channel failed.
         """
         old_channel = self._channel  # save lib channel
         self._channel = 0  # send on basic channel
         _, code = self._execute(STK_CLOSE_CHANNEL.format(channel_to_close))  # send
         self._channel = old_channel  # restore lib channel
 
-        return code == STK_OK
+        if code != STK_OK:
+            raise Exception("couldn't close channel: {}".format(code))
 
     def _execute(self, cmd: str) -> (bytes, str):
         """
