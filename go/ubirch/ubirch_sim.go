@@ -6,7 +6,6 @@ import (
 	"crypto/elliptic"
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -22,8 +21,13 @@ type SimInterface interface {
 	Close() error
 }
 
+type SCardInterface interface {
+	Send(cmd string) (string, error)
+	Close() error
+}
+
 type Protocol struct {
-	SimInterface
+	SCardInterface
 	Debug bool
 }
 
@@ -167,36 +171,37 @@ func (p *Protocol) decode(s string, debug ...bool) ([]Tag, error) {
 // executes an APDU command and returns the response
 func (p *Protocol) execute(format string, v ...interface{}) (string, uint16, error) {
 	cmd := fmt.Sprintf(format, v...)
-	atcmd := fmt.Sprintf("AT+CSIM=%d,\"%s\"", len(cmd), cmd)
+	atcmd := fmt.Sprintf("%s", cmd)
 	response, err := p.Send(atcmd)
 	if err != nil {
 		return "", 0, err
 	}
-	if response[len(response)-1] == "OK" {
-		responseLength := 0
-		responseData := ""
-		responseCode := uint16(ApduOk)
-
-		_, err := fmt.Sscanf(response[0], "+CSIM: %d,%s", &responseLength, &responseData)
-		if err != nil {
-			return "", 0, err
-		}
-		if responseLength != len(responseData) {
-			return "", 0, errors.New("response length does not match data size")
-		}
-
-		if responseLength >= 4 {
-			codeIndex := responseLength - 4
-			code, err := strconv.ParseUint(responseData[codeIndex:], 16, 16)
-			if err != nil {
-				return "", 0, fmt.Errorf("invalid response code '%s': %s", responseData[codeIndex:], err)
-			}
-			responseData, responseCode = responseData[0:codeIndex], uint16(code)
-		}
-		return responseData, responseCode, err
-	} else {
-		return "", 0, fmt.Errorf("error executing modem command: %s", response[len(response)-1])
-	}
+	respInt, err := strconv.ParseUint(response, 16, 16)
+	//if response[len(response)-1] == "OK" {
+	//	responseLength := 0
+	//	responseData := ""
+	//	responseCode := uint16(ApduOk)
+	//
+	//	_, err := fmt.Sscanf(response[0], "+CSIM: %d,%s", &responseLength, &responseData)
+	//	if err != nil {
+	//		return "", 0, err
+	//	}
+	//	if responseLength != len(responseData) {
+	//		return "", 0, errors.New("response length does not match data size")
+	//	}
+	//
+	//	if responseLength >= 4 {
+	//		codeIndex := responseLength - 4
+	//		code, err := strconv.ParseUint(responseData[codeIndex:], 16, 16)
+	//		if err != nil {
+	//			return "", 0, fmt.Errorf("invalid response code '%s': %s", responseData[codeIndex:], err)
+	//		}
+	//		responseData, responseCode = responseData[0:codeIndex], uint16(code)
+	//	}
+	return response, (uint16)(respInt), err
+	//} else {
+	//	return "", 0, fmt.Errorf("error executing modem command: %s", response[len(response)-1])
+	//}
 }
 
 // retrieve an extended response by executing the get response APDU command
@@ -487,7 +492,7 @@ func (p *Protocol) GetIMSI() (string, error) {
 	for i := 0; i < 3; i++ {
 		time.Sleep(10 * time.Millisecond)
 		var response []string
-		response, err = p.Send("AT+CIMI")
+		response[0], err = p.Send("AT+CIMI")
 		if err != nil {
 			continue
 		}

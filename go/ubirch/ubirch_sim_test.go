@@ -11,8 +11,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
-	"errors"
 	"fmt"
+	"github.com/ebfe/scard"
 	"io/ioutil"
 	"log"
 	"math/big"
@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ubirchprotocolgo "github.com/ubirch/ubirch-protocol-go/ubirch/v2"
-	"go.bug.st/serial"
 )
 
 ////Constants////
@@ -84,20 +83,45 @@ func (c *testConfig) helperLoad(fn string) error {
 // to the SIM card, currently within a GPy.
 // It returns a the Protocol and 'nil' error, if successful
 func helperSimInterface(port string, baudrate int, debug bool) (Protocol, error) {
-	mode := &serial.Mode{
-		BaudRate: baudrate,
-		Parity:   serial.NoParity,
-		DataBits: 8,
-		StopBits: serial.OneStopBit,
-	}
-	s, err := serial.Open(port, mode)
+	var err error
+	context, err := scard.EstablishContext()
 	if err != nil {
+		fmt.Println("Error EstablishContext:", err)
 		return Protocol{}, err
 	}
-	serialPort := SimSerialPort{Port: s, Debug: debug}
-	serialPort.Init()
 
-	return Protocol{SimInterface: &serialPort, Debug: debug}, err
+	//	defer context.Release()
+
+	// List available readers
+	readers, err := context.ListReaders()
+	if err != nil {
+		fmt.Println("Error ListReaders:", err)
+		return Protocol{}, err
+	}
+
+	// Use the first reader
+	reader := readers[0]
+	fmt.Println("Using reader:", reader)
+
+	// Connect to the card
+	card, err := context.Connect(reader, scard.ShareShared, scard.ProtocolAny)
+	if err != nil {
+		fmt.Println("Error Connect:", err)
+		return Protocol{}, err
+	}
+
+	// Disconnect (when needed)
+	//	defer card.Disconnect(scard.LeaveCard)
+
+	//s, err := serial.Open(port, mode)
+	//if err != nil {
+	//	return Protocol{}, err
+	//}
+
+	scard := SCardReader{card, debug}
+	//serialPort.Init()
+
+	return Protocol{SCardInterface: &scard, Debug: debug}, err
 }
 
 // Load the configuration for the test environment
@@ -410,33 +434,33 @@ func TestSim_Init(t *testing.T) {
 	asserter.NoErrorf(sim.Init(conf.Pin), "Initializing Applet failed")
 }
 
-// TestSim_GetIMSI tests getting the IMSI from the SIM card
-// 		test if the IMSI has the correct length (15) and
-//		test if, when getting the IMSI a second time, it has the same value
-//	*NOTE*: no failure provocation implemented
-func TestSim_GetIMSI(t *testing.T) {
-	const imsiLength = 15
-
-	asserter := assert.New(t)
-	requirer := require.New(t)
-
-	conf, err := helperLoadConfig()
-	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
-	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
-	defer sim.Close()
-
-	// test getting the IMSI and check the length
-	imsi, err := sim.GetIMSI()
-	asserter.NoErrorf(err, "failed to get IMSI")
-	asserter.Lenf(imsi, imsiLength, "IMSI has not the right length")
-	// test getting the IMSI again and chek the length
-	imsiProof, err := sim.GetIMSI()
-	asserter.NoErrorf(err, "failed to get IMSI")
-	asserter.Lenf(imsiProof, imsiLength, "IMSI has not the right length")
-	// compare the two IMSI values, they have to be equal
-	asserter.Equalf(imsi, imsiProof, "IMSI is not equal, at second reading")
-}
+//// TestSim_GetIMSI tests getting the IMSI from the SIM card
+//// 		test if the IMSI has the correct length (15) and
+////		test if, when getting the IMSI a second time, it has the same value
+////	*NOTE*: no failure provocation implemented
+//func TestSim_GetIMSI(t *testing.T) {
+//	const imsiLength = 15
+//
+//	asserter := assert.New(t)
+//	requirer := require.New(t)
+//
+//	conf, err := helperLoadConfig()
+//	requirer.NoErrorf(err, "failed to load configuration")
+//	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+//	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
+//	defer sim.Close()
+//
+//	// test getting the IMSI and check the length
+//	imsi, err := sim.GetIMSI()
+//	asserter.NoErrorf(err, "failed to get IMSI")
+//	asserter.Lenf(imsi, imsiLength, "IMSI has not the right length")
+//	// test getting the IMSI again and chek the length
+//	imsiProof, err := sim.GetIMSI()
+//	asserter.NoErrorf(err, "failed to get IMSI")
+//	asserter.Lenf(imsiProof, imsiLength, "IMSI has not the right length")
+//	// compare the two IMSI values, they have to be equal
+//	asserter.Equalf(imsi, imsiProof, "IMSI is not equal, at second reading")
+//}
 
 // TestSim_GenerateSourceRandom tests the random number generator of the SIM card,
 // this test does not read the keys and check if they are correct, or have changed.
@@ -1638,92 +1662,93 @@ func (sp MockSimSerialPort) Close() error {
 	return nil
 }
 
-func TestExecuteFailSend(t *testing.T) {
-	writeFails := func(s string) ([]string, error) {
-		return nil, errors.New("write failed")
-	}
-	conf, err := helperLoadConfig()
-	require.NoErrorf(t, err, "failed to load configuration")
-	sim := Protocol{MockSimSerialPort{writeFails}, conf.Debug}
-	_, code, err := sim.execute("whatever")
-
-	if err == nil || code == ApduOk {
-		t.Error("execute should have failed")
-	}
-}
-
-func TestExecuteFails(t *testing.T) {
-	responses := [][]string{
-		{"OK"},                    // insufficient, missing "+CSIM: X,YYYY"
-		{"ERROR"},                 // default error
-		{"+CSIM: 6,foobar", "OK"}, // not a hex encoded response
-		{"+CSIM: 2,9000", "OK"},   // length and data mismatched
-	}
-
-	for _, response := range responses {
-		t.Logf("checking response '%s'\n", response)
-		writeFails := func(s string) ([]string, error) {
-			return response, nil
-		}
-		conf, err := helperLoadConfig()
-		require.NoErrorf(t, err, "failed to load configuration")
-		sim := Protocol{MockSimSerialPort{writeFails}, conf.Debug}
-		_, code, err := sim.execute("whatever")
-		t.Logf("received error %v", err)
-
-		if err == nil || code == ApduOk {
-			t.Errorf("response '%s' should have failed", response)
-		}
-	}
-}
-
-func TestExecuteSimpleOk(t *testing.T) {
-	writeOkay := func(s string) ([]string, error) {
-		return []string{"+CSIM: 4,9000", "OK"}, nil
-	}
-	conf, err := helperLoadConfig()
-	require.NoErrorf(t, err, "failed to load configuration")
-	sim := Protocol{MockSimSerialPort{writeOkay}, conf.Debug}
-	cmd := "010203040506070809"
-
-	_, code, err := sim.execute(cmd)
-
-	if err != nil || code != ApduOk {
-		t.Errorf("execute '%s' failed: %v", cmd, err)
-	}
-}
-
-func TestExecuteSimpleOkWithData(t *testing.T) {
-	data := "0102F1F2"
-	writeOkay := func(s string) ([]string, error) {
-		return []string{fmt.Sprintf("+CSIM: 12,%s9000", data), "OK"}, nil
-	}
-	conf, err := helperLoadConfig()
-	require.NoErrorf(t, err, "failed to load configuration")
-	sim := Protocol{MockSimSerialPort{writeOkay}, conf.Debug}
-	cmd := "010203040506070809"
-
-	r, code, err := sim.execute(cmd)
-
-	if err != nil || code != ApduOk {
-		t.Errorf("execute '%s' failed: %v", cmd, err)
-	}
-	if data != r {
-		t.Errorf("execute failed: expected %s, but got %s", data, r)
-	}
-}
-
-func TestProtocol_Init_Mock(t *testing.T) {
-	conf, err := helperLoadConfig()
-	require.NoErrorf(t, err, "failed to load configuration")
-	sim := Protocol{MockSimSerialPort{func(s string) ([]string, error) {
-		return []string{"+CSIM: 4,9000", "OK"}, nil
-	}}, conf.Debug}
-	err = sim.Init("1234")
-	if err != nil {
-		t.Errorf("init failed: %v", err)
-	}
-}
+//
+//func TestExecuteFailSend(t *testing.T) {
+//	writeFails := func(s string) ([]string, error) {
+//		return nil, errors.New("write failed")
+//	}
+//	conf, err := helperLoadConfig()
+//	require.NoErrorf(t, err, "failed to load configuration")
+//	sim := Protocol{MockSimSerialPort{writeFails}, conf.Debug}
+//	_, code, err := sim.execute("whatever")
+//
+//	if err == nil || code == ApduOk {
+//		t.Error("execute should have failed")
+//	}
+//}
+//
+//func TestExecuteFails(t *testing.T) {
+//	responses := [][]string{
+//		{"OK"},                    // insufficient, missing "+CSIM: X,YYYY"
+//		{"ERROR"},                 // default error
+//		{"+CSIM: 6,foobar", "OK"}, // not a hex encoded response
+//		{"+CSIM: 2,9000", "OK"},   // length and data mismatched
+//	}
+//
+//	for _, response := range responses {
+//		t.Logf("checking response '%s'\n", response)
+//		writeFails := func(s string) ([]string, error) {
+//			return response, nil
+//		}
+//		conf, err := helperLoadConfig()
+//		require.NoErrorf(t, err, "failed to load configuration")
+//		sim := Protocol{MockSimSerialPort{writeFails}, conf.Debug}
+//		_, code, err := sim.execute("whatever")
+//		t.Logf("received error %v", err)
+//
+//		if err == nil || code == ApduOk {
+//			t.Errorf("response '%s' should have failed", response)
+//		}
+//	}
+//}
+//
+//func TestExecuteSimpleOk(t *testing.T) {
+//	writeOkay := func(s string) ([]string, error) {
+//		return []string{"+CSIM: 4,9000", "OK"}, nil
+//	}
+//	conf, err := helperLoadConfig()
+//	require.NoErrorf(t, err, "failed to load configuration")
+//	sim := Protocol{MockSimSerialPort{writeOkay}, conf.Debug}
+//	cmd := "010203040506070809"
+//
+//	_, code, err := sim.execute(cmd)
+//
+//	if err != nil || code != ApduOk {
+//		t.Errorf("execute '%s' failed: %v", cmd, err)
+//	}
+//}
+//
+//func TestExecuteSimpleOkWithData(t *testing.T) {
+//	data := "0102F1F2"
+//	writeOkay := func(s string) ([]string, error) {
+//		return []string{fmt.Sprintf("+CSIM: 12,%s9000", data), "OK"}, nil
+//	}
+//	conf, err := helperLoadConfig()
+//	require.NoErrorf(t, err, "failed to load configuration")
+//	sim := Protocol{MockSimSerialPort{writeOkay}, conf.Debug}
+//	cmd := "010203040506070809"
+//
+//	r, code, err := sim.execute(cmd)
+//
+//	if err != nil || code != ApduOk {
+//		t.Errorf("execute '%s' failed: %v", cmd, err)
+//	}
+//	if data != r {
+//		t.Errorf("execute failed: expected %s, but got %s", data, r)
+//	}
+//}
+//
+//func TestProtocol_Init_Mock(t *testing.T) {
+//	conf, err := helperLoadConfig()
+//	require.NoErrorf(t, err, "failed to load configuration")
+//	sim := Protocol{MockSimSerialPort{func(s string) ([]string, error) {
+//		return []string{"+CSIM: 4,9000", "OK"}, nil
+//	}}, conf.Debug}
+//	err = sim.Init("1234")
+//	if err != nil {
+//		t.Errorf("init failed: %v", err)
+//	}
+//}
 
 func TestDecodeExampleCSRRequest(t *testing.T) {
 	examples := []string{
