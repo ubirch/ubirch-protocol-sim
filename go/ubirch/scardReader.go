@@ -3,69 +3,64 @@ package ubirch
 import (
 	"encoding/hex"
 	"fmt"
-	"github.com/ebfe/scard"
+	"github.com/sf1/go-card/smartcard"
 	"log"
 )
 
 type SCardReader struct {
-	*scard.Card
+	*smartcard.Card
 	Debug bool
 }
 
 func (scr *SCardReader) Init() error {
-	var err error
-	context, err := scard.EstablishContext()
+	ctx, err := smartcard.EstablishContext()
 	if err != nil {
 		fmt.Println("Error EstablishContext:", err)
 		return err
 	}
+	defer ctx.Release()
 
-	defer context.Release()
-
-	// List available readers
-	readers, err := context.ListReaders()
+	reader, err := ctx.WaitForCardPresent()
 	if err != nil {
-		fmt.Println("Error ListReaders:", err)
+		fmt.Println("Error waiting for card", err)
 		return err
 	}
 
-	// Use the first reader
-	reader := readers[0]
-	fmt.Println("Using reader:", reader)
-
-	// Connect to the card
-	card, err := context.Connect(reader, scard.ShareShared, scard.ProtocolAny)
+	card, err := reader.Connect()
 	if err != nil {
-		fmt.Println("Error Connect:", err)
+		fmt.Println("Error Connecting", err)
 		return err
 	}
+	defer card.Disconnect()
 
-	// Disconnect (when needed)
-	defer card.Disconnect(scard.LeaveCard)
+	fmt.Printf("Card ATR: %s\n", card.ATR())
 
 	return nil
 }
 
+//
 func (scr *SCardReader) Send(cmd string) (string, error) {
 	if scr.Debug {
 		log.Printf("+++ %s", cmd)
 	}
-	hexCmd, err := hex.DecodeString(cmd)
+	command, err := hex.DecodeString(cmd)
 	if err != nil {
 		fmt.Println("Error converting cmd into hex", err)
 		return "", err
 	}
-	response, err := scr.Transmit(hexCmd)
+	response, err := scr.TransmitAPDU(command)
 	if err != nil {
-		fmt.Println("Error transmitting cmd", err)
+		fmt.Println("Error TransmitAPDU", err)
 		return "", err
 	}
 	if scr.Debug {
 		log.Printf("--- %s", hex.EncodeToString(response))
 	}
+
 	return hex.EncodeToString(response), nil
 }
 
+//
 func (scr *SCardReader) Close() error {
-	return scr.Disconnect(scard.LeaveCard)
+	return scr.Disconnect()
 }
