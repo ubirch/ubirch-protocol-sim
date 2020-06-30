@@ -97,7 +97,7 @@ func helperSimInterface(port string, baudrate int, debug bool) (Protocol, error)
 	serialPort := SimSerialPort{Port: s, Debug: debug}
 	serialPort.Init()
 
-	return Protocol{SimInterface: &serialPort, Debug: debug}, err
+	return Protocol{SimInterface: &serialPort, Debug: debug, channel: 0}, err
 }
 
 // Load the configuration for the test environment
@@ -422,16 +422,26 @@ func TestSim_GetIMSI(t *testing.T) {
 
 	conf, err := helperLoadConfig()
 	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+
+	mode := &serial.Mode{
+		BaudRate: conf.SerialBaudrate,
+		Parity:   serial.NoParity,
+		DataBits: 8,
+		StopBits: serial.OneStopBit,
+	}
+	s, err := serial.Open(conf.SerialPort, mode)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
-	defer sim.Close()
+
+	serialPort := SimSerialPort{Port: s, Debug: conf.Debug}
+	defer serialPort.Close()
+	serialPort.Init()
 
 	// test getting the IMSI and check the length
-	imsi, err := sim.GetIMSI()
+	imsi, err := serialPort.GetIMSI()
 	asserter.NoErrorf(err, "failed to get IMSI")
 	asserter.Lenf(imsi, imsiLength, "IMSI has not the right length")
 	// test getting the IMSI again and chek the length
-	imsiProof, err := sim.GetIMSI()
+	imsiProof, err := serialPort.GetIMSI()
 	asserter.NoErrorf(err, "failed to get IMSI")
 	asserter.Lenf(imsiProof, imsiLength, "IMSI has not the right length")
 	// compare the two IMSI values, they have to be equal
@@ -642,7 +652,7 @@ func TestSim_StoreCertificate(t *testing.T) {
 	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
 	// generate a new key pair
 	requirer.NoErrorf(sim.GenerateKey(defaultName, testUuid), "unable to generate key")
-	csrDER, err := sim.GenerateCSR(defaultName, testUuid)
+	csrDER, err := sim.GenerateCSR(defaultName)
 	requirer.NoErrorf(err, "failed to generate CSR")
 	requirer.NotNilf(csrDER, "CSR should not be Nil")
 	// test parsing the certificate into x509 format
@@ -706,7 +716,7 @@ func TestSim_UpdateCertificate(t *testing.T) {
 	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
 	// generate a new key pair
 	requirer.NoErrorf(sim.GenerateKey(defaultName, testUuid), "unable to generate key")
-	csrDER, err := sim.GenerateCSR(defaultName, testUuid)
+	csrDER, err := sim.GenerateCSR(defaultName)
 	requirer.NoErrorf(err, "failed to generate CSR")
 	requirer.NotNilf(csrDER, "CSR should not be Nil")
 	// test parsing the certificate into x509 format
@@ -792,12 +802,14 @@ func TestSim_GenerateCSR(t *testing.T) {
 	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
 
 	// test to get an invalid CSR from the SIM card
-	csr, err := sim.GenerateCSR(defaultName, uuid.MustParse(defaultUUID))
+	csr, err := sim.GenerateCSR(defaultName)
 	asserter.Errorf(err, "failed to return error for invalid name")
 	asserter.Nilf(csr, "CSR should be Nil")
 
+	// generate a new key pair
+	requirer.NoErrorf(sim.GenerateKey(defaultName, uuid.MustParse(defaultUUID)), "unable to generate key")
 	// test to get a valid CSR from the SIM card
-	csr, err = sim.GenerateCSR(ubirchKeyName, uuid.MustParse(defaultUUID))
+	csr, err = sim.GenerateCSR(defaultName)
 	asserter.NoErrorf(err, "failed to generate CSR")
 	asserter.NotNilf(csr, "CSR should not be Nil")
 	// test parsing the certificate into x509 format
@@ -812,6 +824,9 @@ func TestSim_GenerateCSR(t *testing.T) {
 	asserter.Containsf(csrX509.Subject.Organization, csrOrganization, "the CSR does not belong to 'ubirch GmbH'")
 	// test checking if the Public Key Algorithm is correct
 	asserter.Equalf(csrX509.PublicKeyAlgorithm, csrPubKeyAlgorithm, "the public key algorithm is not correct")
+
+	sim.DeleteSSEntryID(defaultName)
+	sim.DeleteSSEntryID("_" + defaultName)
 }
 
 // todo WIP
@@ -1581,7 +1596,7 @@ var TestCases = []TestData{
 func TestAPDUEncode(t *testing.T) {
 	conf, err := helperLoadConfig()
 	require.NoErrorf(t, err, "failed to load configuration")
-	p := Protocol{nil, conf.Debug}
+	p := Protocol{nil, conf.Debug, 0}
 	for i, c := range TestCases {
 		result, _ := p.encode(c.args)
 		if result != c.encoded {
@@ -1593,7 +1608,7 @@ func TestAPDUEncode(t *testing.T) {
 func TestAPDUDecode(t *testing.T) {
 	conf, err := helperLoadConfig()
 	require.NoErrorf(t, err, "failed to load configuration")
-	p := Protocol{nil, conf.Debug}
+	p := Protocol{nil, conf.Debug, 0}
 	for i, c := range TestCases {
 		result, err := p.decode(c.encoded)
 		if err != nil {
@@ -1613,7 +1628,7 @@ func TestAPDUDecodeFails(t *testing.T) {
 	}
 	conf, err := helperLoadConfig()
 	require.NoErrorf(t, err, "failed to load configuration")
-	p := Protocol{nil, conf.Debug}
+	p := Protocol{nil, conf.Debug, 0}
 	for i, c := range broken {
 		r, err := p.decode(c)
 		if err == nil {
@@ -1644,7 +1659,7 @@ func TestExecuteFailSend(t *testing.T) {
 	}
 	conf, err := helperLoadConfig()
 	require.NoErrorf(t, err, "failed to load configuration")
-	sim := Protocol{MockSimSerialPort{writeFails}, conf.Debug}
+	sim := Protocol{MockSimSerialPort{writeFails}, conf.Debug, 0}
 	_, code, err := sim.execute("whatever")
 
 	if err == nil || code == ApduOk {
@@ -1667,7 +1682,7 @@ func TestExecuteFails(t *testing.T) {
 		}
 		conf, err := helperLoadConfig()
 		require.NoErrorf(t, err, "failed to load configuration")
-		sim := Protocol{MockSimSerialPort{writeFails}, conf.Debug}
+		sim := Protocol{MockSimSerialPort{writeFails}, conf.Debug, 0}
 		_, code, err := sim.execute("whatever")
 		t.Logf("received error %v", err)
 
@@ -1683,7 +1698,7 @@ func TestExecuteSimpleOk(t *testing.T) {
 	}
 	conf, err := helperLoadConfig()
 	require.NoErrorf(t, err, "failed to load configuration")
-	sim := Protocol{MockSimSerialPort{writeOkay}, conf.Debug}
+	sim := Protocol{MockSimSerialPort{writeOkay}, conf.Debug, 0}
 	cmd := "010203040506070809"
 
 	_, code, err := sim.execute(cmd)
@@ -1700,7 +1715,7 @@ func TestExecuteSimpleOkWithData(t *testing.T) {
 	}
 	conf, err := helperLoadConfig()
 	require.NoErrorf(t, err, "failed to load configuration")
-	sim := Protocol{MockSimSerialPort{writeOkay}, conf.Debug}
+	sim := Protocol{MockSimSerialPort{writeOkay}, conf.Debug, 0}
 	cmd := "010203040506070809"
 
 	r, code, err := sim.execute(cmd)
@@ -1718,7 +1733,7 @@ func TestProtocol_Init_Mock(t *testing.T) {
 	require.NoErrorf(t, err, "failed to load configuration")
 	sim := Protocol{MockSimSerialPort{func(s string) ([]string, error) {
 		return []string{"+CSIM: 4,9000", "OK"}, nil
-	}}, conf.Debug}
+	}}, conf.Debug, 0}
 	err = sim.Init("1234")
 	if err != nil {
 		t.Errorf("init failed: %v", err)
@@ -1732,7 +1747,7 @@ func TestDecodeExampleCSRRequest(t *testing.T) {
 	}
 	conf, err := helperLoadConfig()
 	require.NoErrorf(t, err, "failed to load configuration")
-	sim := Protocol{nil, conf.Debug}
+	sim := Protocol{nil, conf.Debug, 0}
 	for _, s := range examples {
 		t.Log(s)
 		tags, err := sim.decode(s)
