@@ -504,7 +504,7 @@ func TestSim_VerifyPin(t *testing.T) {
 	requirer.NoErrorf(sim.selectApplet(), "failed to select the Applet")
 
 	// test the wrong PIN
-	asserter.Errorf(sim.authenticate("1234"), "failed to falsify the PIN")
+	asserter.Errorf(sim.authenticate("0000"), "failed to falsify the PIN")
 	// test a nil PIN
 	asserter.Errorf(sim.authenticate(""), "failed to falsify the PIN")
 	// test a very long PIN (65 Byte)
@@ -1699,7 +1699,7 @@ func TestExecuteSimpleOk(t *testing.T) {
 	conf, err := helperLoadConfig()
 	require.NoErrorf(t, err, "failed to load configuration")
 	sim := Protocol{MockSimSerialPort{writeOkay}, conf.Debug, 0}
-	cmd := "010203040506070809"
+	cmd := "000203040506070809"
 
 	_, code, err := sim.execute(cmd)
 
@@ -1716,7 +1716,7 @@ func TestExecuteSimpleOkWithData(t *testing.T) {
 	conf, err := helperLoadConfig()
 	require.NoErrorf(t, err, "failed to load configuration")
 	sim := Protocol{MockSimSerialPort{writeOkay}, conf.Debug, 0}
-	cmd := "010203040506070809"
+	cmd := "000203040506070809"
 
 	r, code, err := sim.execute(cmd)
 
