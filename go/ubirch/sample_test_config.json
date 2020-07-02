@@ -2,5 +2,6 @@
   "serialport": "/dev/ttyACM0",
   "serialbaudrate": 115200,
   "debug": false,
-  "pin": ""
+  "pin": "",
+  "interface": "modem"
 }

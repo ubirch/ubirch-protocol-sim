@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log"
 	"math/big"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,17 +16,14 @@ import (
 )
 
 type SimInterface interface {
-	Send(cmd string) ([]string, error)
-	Close() error
-}
-
-type SCardInterface interface {
-	Send(cmd string) (string, error)
+	SendAPDU(cmd string) (string, error)
+	SendAT(cmd string) ([]string, error)
+	Execute(format string, v ...interface{}) (string, uint16, error)
 	Close() error
 }
 
 type Protocol struct {
-	SCardInterface
+	SimInterface
 	Debug bool
 }
 
@@ -71,12 +67,12 @@ const (
 
 	// Generic app commands
 	stkAppSelect              = "00A4040010%s"   // APDU Select Application ([1], 2.1.1)
-	stkAppRandom              = "80B900%02X%02X" // APDU Generate Secure Random ([1], 2.1.3)
+	stkAppRandom              = "80B900%02X00"   // APDU Generate Secure Random ([1], 2.1.3)
 	stkAppSsEntrySelect       = "80A50000%02X%s" // APDU Select SS Entry ([1], 2.1.4)
-	stkAppSsEntrySelectFirst  = "80A50100%02X"   // APDU Select First SS Entry ([1], 2.1.4)
-	stkAppSsEntrySelectNext   = "80A50200%02X"   // APDU Select Next SS Entry ([1], 2.1.4)
-	stkAppSsEntryGetSize      = "80CA0200%02X"   // APDU Get SS Entry (Get Size)  ( TLSAuthApp Manual 4.1.4)
-	stkAppSsEntryGetFirstPart = "80CA0000%02X"   // APDU Get SS Entry (Get first (or only) part)  ( TLSAuthApp Manual 4.1.4)
+	stkAppSsEntrySelectFirst  = "80A5010000"     // APDU Select First SS Entry ([1], 2.1.4)
+	stkAppSsEntrySelectNext   = "80A5020000"     // APDU Select Next SS Entry ([1], 2.1.4)
+	stkAppSsEntryGetSize      = "80CA020000"     // APDU Get SS Entry (Get Size)  ( TLSAuthApp Manual 4.1.4)
+	stkAppSsEntryGetFirstPart = "80CA000000"     // APDU Get SS Entry (Get first (or only) part)  ( TLSAuthApp Manual 4.1.4)
 	stkAppDeleteAll           = "80E50000"       // APDU Delete All SS Entries
 	stkAppSsDeleteEntryID     = "80E40000%02X%s" // APDU Delete SS Entry ([1], 2.1.5)
 	stkAppSsEntryIdGet        = "80B10000%02X%s" // APDU Get SS Entry ID
@@ -95,7 +91,7 @@ const (
 	stkAppCsrGenerateNext  = "80BA8100%02X"     // Get Certificate Sign Request response ([1], 2.1.8)
 	stkAppCertStore        = "80E3%02X00%02X%s" // Store Certificate
 	stkAppCertUpdate       = "80E7%02X00%02X%s" // Update Certificate
-	stkAppCertGet          = "80CC%02X00%02X"   // Get Certificate
+	stkAppCertGet          = "80CC%02X0000"     // Get Certificate
 )
 
 // encode Tags into binary format
@@ -168,31 +164,6 @@ func (p *Protocol) decode(s string, debug ...bool) ([]Tag, error) {
 	return p.decodeBinary(bin)
 }
 
-// executes an APDU command and returns the response
-func (p *Protocol) execute(format string, v ...interface{}) (string, uint16, error) {
-	cmd := fmt.Sprintf(format, v...)
-	atcmd := fmt.Sprintf("%s", cmd)
-	response, err := p.Send(atcmd)
-	if err != nil {
-		return "", 0, err
-	}
-	responseLength := len(response)
-	responseData := ""
-	responseCode := uint16(ApduOk)
-	if responseLength >= 4 {
-		codeIndex := responseLength - 4
-		code, err := strconv.ParseUint(response[codeIndex:], 16, 16)
-		if err != nil {
-			return "", 0, fmt.Errorf("invalid response code '%s': %s", responseData[codeIndex:], err)
-		}
-		responseData, responseCode = response[0:codeIndex], uint16(code)
-
-		return responseData, responseCode, err
-	} else {
-		return "", 0, fmt.Errorf("error executing modem command: %s", response)
-	}
-}
-
 // retrieve an extended response by executing the get response APDU command
 func (p *Protocol) response(code uint16) (string, uint16, error) {
 	c := code >> 8   // first byte -> response code: 0x61 indicate that there is more data available
@@ -204,7 +175,7 @@ func (p *Protocol) response(code uint16) (string, uint16, error) {
 		if p.Debug {
 			log.Printf(">> get response")
 		}
-		r, code, err = p.execute(stkGetResponse, l) // request available data
+		r, code, err = p.Execute(stkGetResponse, l) // request available data
 		if err != nil {
 			return "", 0, err
 		}
@@ -231,7 +202,7 @@ func (p *Protocol) selectApplet() error {
 	if p.Debug {
 		log.Println(">> select SIM applet")
 	}
-	_, code, err := p.execute(stkAppSelect, stkAppDef)
+	_, code, err := p.Execute(stkAppSelect, stkAppDef)
 	if err != nil {
 		return err
 	}
@@ -245,7 +216,7 @@ func (p *Protocol) authenticate(pin string) error {
 	if p.Debug {
 		log.Println(">> authenticate")
 	}
-	_, code, err := p.execute(stkAuthPin, len(pin), hex.EncodeToString([]byte(pin)))
+	_, code, err := p.Execute(stkAuthPin, len(pin), hex.EncodeToString([]byte(pin)))
 	if err != nil {
 		return err
 	}
@@ -280,7 +251,7 @@ func (p *Protocol) selectSSEntryID(entryID string) ([]byte, uint16, error) {
 		log.Printf(">> selecting SS entry \"%s\"", entryID)
 	}
 	// select SS entry
-	_, code, err := p.execute(stkAppSsEntrySelect, len(entryID), hex.EncodeToString([]byte(entryID)))
+	_, code, err := p.Execute(stkAppSsEntrySelect, len(entryID), hex.EncodeToString([]byte(entryID)))
 	if err != nil {
 		return nil, code, err
 	}
@@ -328,17 +299,9 @@ func (p *Protocol) GetLastSignature() ([]byte, error) {
 		return nil, err
 	}
 	//check size is as expected (we need to make sure of this also because we rely on it being short enough to get in  a single response)
-	sizeHex, code, err := p.execute(stkAppSsEntryGetSize, 0)
+	sizeHex, code, err := p.Execute(stkAppSsEntryGetSize)
 	if err != nil {
 		return nil, err
-	}
-	if code>>8 == 0x6C { // see https://cardwerk.com/smart-card-standard-iso7816-4-section-5-basic-organizations ch. 5.4.5
-		// the length is not correct and the command has to be retransmitted again with the correct length
-		len := code & 0xFF
-		sizeHex, code, err = p.execute(stkAppSsEntryGetSize, len)
-		if err != nil {
-			return nil, err
-		}
 	}
 	if code != ApduOk {
 		return nil, fmt.Errorf("APDU error: %x, get last signature size failed", code)
@@ -352,17 +315,9 @@ func (p *Protocol) GetLastSignature() ([]byte, error) {
 		return nil, fmt.Errorf("unexpected length of signature entry: %v bytes", size)
 	}
 	//retrieve signature data, we rely on the signature being short enough to fit in one response
-	signatureHex, code, err := p.execute(stkAppSsEntryGetFirstPart, 0)
+	signatureHex, code, err := p.Execute(stkAppSsEntryGetFirstPart)
 	if err != nil {
 		return nil, err
-	}
-	if code>>8 == 0x6C { // see https://cardwerk.com/smart-card-standard-iso7816-4-section-5-basic-organizations ch. 5.4.5
-		// the length is not correct and the command has to be retransmitted again with the correct length
-		len := code & 0xFF
-		signatureHex, code, err = p.execute(stkAppSsEntryGetFirstPart, len)
-		if err != nil {
-			return nil, err
-		}
 	}
 	if code != ApduOk {
 		return nil, fmt.Errorf("APDU error: %x, get last signature data failed", code)
@@ -396,17 +351,9 @@ func (p *Protocol) GetAllSSEntries() ([]map[string]string, error) {
 			selectCommand = stkAppSsEntrySelectNext
 		}
 		// select first/next SS entry
-		resp, code, err := p.execute(selectCommand, 0)
+		resp, code, err := p.Execute(selectCommand)
 		if err != nil {
 			return nil, err
-		}
-		if code>>8 == 0x6C { // see https://cardwerk.com/smart-card-standard-iso7816-4-section-5-basic-organizations ch. 5.4.5
-			// the length is not correct and the command has to be retransmitted again with the correct length
-			len := code & 0xFF
-			resp, code, err = p.execute(selectCommand, len)
-			if err != nil {
-				return nil, err
-			}
 		}
 		//check if an entry was found
 		if code == ApduOk { //if found: decode, save data to map
@@ -445,7 +392,7 @@ func (p *Protocol) DeleteSSEntryID(entryID string) (uint16, error) {
 		log.Printf(">> deleting SS entry \"%s\"", entryID)
 	}
 	// delete SS entry command
-	_, code, err := p.execute(stkAppSsDeleteEntryID, len(entryID), hex.EncodeToString([]byte(entryID)))
+	_, code, err := p.Execute(stkAppSsDeleteEntryID, len(entryID), hex.EncodeToString([]byte(entryID)))
 	if err != nil {
 		return code, err
 	}
@@ -468,7 +415,7 @@ func (p *Protocol) DeleteAll() error {
 	if p.Debug {
 		log.Println(">> delete ALL SS entries")
 	}
-	_, code, err := p.execute(stkAppDeleteAll)
+	_, code, err := p.Execute(stkAppDeleteAll)
 	if err != nil {
 		return err
 	}
@@ -484,17 +431,9 @@ func (p *Protocol) Random(len int) ([]byte, error) {
 	if p.Debug {
 		log.Printf(">> generate random number (%d bytes)", len)
 	}
-	r, code, err := p.execute(stkAppRandom, len, 0)
+	r, code, err := p.Execute(stkAppRandom, len)
 	if err != nil {
 		return nil, err
-	}
-	if code>>8 == 0x6C { // see https://cardwerk.com/smart-card-standard-iso7816-4-section-5-basic-organizations ch. 5.4.5
-		// the length is not correct and the command has to be retransmitted again with the correct length
-		len2 := code & 0xFF
-		r, code, err = p.execute(stkAppRandom, len, len2)
-		if err != nil {
-			return nil, err
-		}
 	}
 	if code != ApduOk {
 		return nil, fmt.Errorf("APDU error: %x, generate random failed", code)
@@ -513,7 +452,7 @@ func (p *Protocol) GetIMSI() (string, error) {
 	for i := 0; i < 3; i++ {
 		time.Sleep(10 * time.Millisecond)
 		var response []string
-		response[0], err = p.Send("AT+CIMI")
+		response, err = p.SendAT("AT+CIMI")
 		if err != nil {
 			continue
 		}
@@ -569,7 +508,7 @@ func (p *Protocol) PutPubKey(name string, uid uuid.UUID, pubKey []byte) error {
 	if err != nil {
 		return err
 	}
-	_, code, err := p.execute(stkAppKeyPut, len(args)/2, args)
+	_, code, err := p.Execute(stkAppKeyPut, len(args)/2, args)
 	if err != nil {
 		return err
 	}
@@ -586,7 +525,7 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 		log.Printf(">> get key \"%s\"", name)
 	}
 	// select SS entry
-	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
+	_, code, err := p.Execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
 	if err != nil {
 		return nil, err
 	}
@@ -607,7 +546,7 @@ func (p *Protocol) GetKey(name string) ([]byte, error) {
 		return nil, err
 	}
 
-	_, code, err = p.execute(stkAppKeyGet, len(args)/2, args)
+	_, code, err = p.Execute(stkAppKeyGet, len(args)/2, args)
 	if err != nil {
 		return nil, err
 	}
@@ -641,7 +580,7 @@ func (p *Protocol) GetUUID(name string) (uuid.UUID, error) {
 		log.Printf(">> get UUID of \"%s\"", name)
 	}
 	// select SS entry
-	_, code, err := p.execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
+	_, code, err := p.Execute(stkAppSsEntrySelect, len(name), hex.EncodeToString([]byte(name)))
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -697,7 +636,7 @@ func (p *Protocol) GenerateKey(name string, uid uuid.UUID) error {
 		return err
 	}
 
-	_, code, err := p.execute(stkAppKeyGenerate, len(args)/2, args)
+	_, code, err := p.Execute(stkAppKeyGenerate, len(args)/2, args)
 	if err != nil {
 		return err
 	}
@@ -743,7 +682,7 @@ func (p *Protocol) GenerateCSR(entryID string, uid uuid.UUID) ([]byte, error) {
 		return nil, err
 	}
 
-	_, code, err := p.execute(stkAppCsrGenerateFirst, len(args)/2, args) // Generate CSR
+	_, code, err := p.Execute(stkAppCsrGenerateFirst, len(args)/2, args) // Generate CSR
 	if err != nil {
 		return nil, err
 	}
@@ -751,22 +690,14 @@ func (p *Protocol) GenerateCSR(entryID string, uid uuid.UUID) ([]byte, error) {
 		return nil, fmt.Errorf("unable to generate certificate signing request: 0x%x", code)
 	}
 
-	data, code, err := p.execute(stkGetResponse, 0) // get first part of CSR
+	data, code, err := p.Execute(stkGetResponse, 0) // get first part of CSR
 	if err != nil {
 		return nil, err
 	}
 
 	for code == ApduMoreData {
 		moreData := ""
-		moreData, code, _ = p.execute(stkAppCsrGenerateNext, 0) // get next part of CSR
-		if code>>8 == 0x6C {                                    // see https://cardwerk.com/smart-card-standard-iso7816-4-section-5-basic-organizations ch. 5.4.5
-			// the length is not correct and the command has to be retransmitted again with the correct length
-			len := code & 0xFF
-			moreData, code, err = p.execute(stkAppCsrGenerateNext, len)
-			if err != nil {
-				return nil, err
-			}
-		}
+		moreData, code, _ = p.Execute(stkAppCsrGenerateNext, 0) // get next part of CSR
 		data += moreData
 	}
 	if code != ApduOk {
@@ -804,7 +735,7 @@ func (p *Protocol) StoreCertificate(entryID string, uid uuid.UUID, cert []byte) 
 			end = len(args)
 		}
 		chunk := args[:end]
-		_, code, err := p.execute(stkAppCertStore, finalBit, len(chunk)/2, chunk)
+		_, code, err := p.Execute(stkAppCertStore, finalBit, len(chunk)/2, chunk)
 		if err != nil {
 			return err
 		}
@@ -828,7 +759,7 @@ func (p *Protocol) UpdateCertificate(entryID string, newCert []byte) error {
 	}
 
 	// select SS entry
-	_, code, err := p.execute(stkAppSsEntrySelect, len(entryID), hex.EncodeToString([]byte(entryID)))
+	_, code, err := p.Execute(stkAppSsEntrySelect, len(entryID), hex.EncodeToString([]byte(entryID)))
 	if err != nil {
 		return err
 	}
@@ -853,7 +784,7 @@ func (p *Protocol) UpdateCertificate(entryID string, newCert []byte) error {
 			end = len(args)
 		}
 		chunk := args[:end]
-		_, code, err := p.execute(stkAppCertUpdate, finalBit, len(chunk)/2, chunk)
+		_, code, err := p.Execute(stkAppCertUpdate, finalBit, len(chunk)/2, chunk)
 		if err != nil {
 			return err
 		}
@@ -872,7 +803,7 @@ func (p *Protocol) GetCertificate(entryID string) ([]byte, error) {
 		log.Printf(">> get certificate \"%s\"", entryID)
 	}
 	// select SS entry
-	_, code, err := p.execute(stkAppSsEntrySelect, len(entryID), hex.EncodeToString([]byte(entryID)))
+	_, code, err := p.Execute(stkAppSsEntrySelect, len(entryID), hex.EncodeToString([]byte(entryID)))
 	if err != nil {
 		return nil, err
 	}
@@ -889,23 +820,15 @@ func (p *Protocol) GetCertificate(entryID string) ([]byte, error) {
 	}
 
 	// get the certificate
-	data, code, err := p.execute(stkAppCertGet, 0, 0)
+	data, code, err := p.Execute(stkAppCertGet, 0)
 	if err != nil {
 		return nil, err
 	}
 	for code == ApduMoreData {
 		moreData := ""
-		moreData, code, err = p.execute(stkAppCertGet, 1, 0)
+		moreData, code, err = p.Execute(stkAppCertGet, 1)
 		if err != nil {
 			return nil, err
-		}
-		if code>>8 == 0x6C { // see https://cardwerk.com/smart-card-standard-iso7816-4-section-5-basic-organizations ch. 5.4.5
-			// the length is not correct and the command has to be retransmitted again with the correct length
-			len := code & 0xFF
-			moreData, code, err = p.execute(stkAppCertGet, 1, len)
-			if err != nil {
-				return nil, err
-			}
 		}
 		data += moreData
 	}
@@ -946,7 +869,7 @@ func (p *Protocol) Sign(name string, value []byte, protocol ProtocolType, hashBe
 	if hashBeforeSign {
 		protocol |= 0x40 // set flag for automatic hashing
 	}
-	_, code, err := p.execute(stkAppSignInit, protocol, len(args)/2, args)
+	_, code, err := p.Execute(stkAppSignInit, protocol, len(args)/2, args)
 	if err != nil {
 		return nil, fmt.Errorf("sign init failed: %v", err)
 	}
@@ -966,7 +889,7 @@ func (p *Protocol) Sign(name string, value []byte, protocol ProtocolType, hashBe
 		if p.Debug {
 			log.Printf(">> sign update/final")
 		}
-		_, code, err = p.execute(stkAppSignFinal, finalBit, len(chunk)/2, chunk)
+		_, code, err = p.Execute(stkAppSignFinal, finalBit, len(chunk)/2, chunk)
 		if err != nil {
 			return nil, fmt.Errorf("sign update/final failed: %v", err)
 		}
@@ -1014,7 +937,7 @@ func (p *Protocol) Verify(name string, upp []byte, protocol ProtocolType) (bool,
 	if p.Debug {
 		log.Printf(">> verify init")
 	}
-	_, code, err := p.execute(stkAppVerifyInit, protocol, len(args)/2, args)
+	_, code, err := p.Execute(stkAppVerifyInit, protocol, len(args)/2, args)
 	if err != nil {
 		return false, fmt.Errorf("verify init failed: %v", err)
 	}
@@ -1034,7 +957,7 @@ func (p *Protocol) Verify(name string, upp []byte, protocol ProtocolType) (bool,
 		if p.Debug {
 			log.Printf(">> verify update/final")
 		}
-		_, code, err = p.execute(stkAppVerifyFinal, finalBit, len(chunk)/2, chunk)
+		_, code, err = p.Execute(stkAppVerifyFinal, finalBit, len(chunk)/2, chunk)
 		if err != nil {
 			return false, fmt.Errorf("verify update/final failed: %v", err)
 		}

@@ -15,7 +15,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
-	"go.bug.st/serial"
 )
 
 func main() {
@@ -32,36 +31,37 @@ func main() {
 		os.Exit(1)
 	}
 
-	mode := &serial.Mode{
-		BaudRate: baud,
-		Parity:   serial.NoParity,
-		DataBits: 8,
-		StopBits: serial.OneStopBit,
-	}
-	s, err := serial.Open(port, mode)
-	if err != nil {
-		log.Printf("serial port open failed: %v\n", err)
-		os.Exit(1)
-	}
-	serialPort := ubirch.SimSerialPort{Port: s, Debug: false}
-	serialPort.Init()
-
-	//noinspection GoUnhandledErrorResult
-	defer serialPort.Close()
-
 	conf := Config{}
 	err = conf.Load("config.json")
 	if err != nil {
 		log.Fatalf("loading configuration failed: %v", err)
 	}
 
-	sim := ubirch.Protocol{SimInterface: &serialPort, Debug: conf.Debug}
+	// Initialize the Interface to the SIM
+	var sim ubirch.Protocol
+	var imsi string
 
-	// get SIM IMSI
-	imsi, err := sim.GetIMSI()
-	if err != nil {
-		log.Fatalf("getting IMSI failed: %v", err)
+	if conf.Interface == "modem" {
+		sim, err = ubirch.InitGPyModem(port, baud, conf.Debug)
+		if err != nil {
+			log.Fatalf("Failed to initialize the GPy modem")
+		}
+		// get SIM IMSI
+		imsi, err = sim.GetIMSI()
+		if err != nil {
+			log.Fatalf("getting IMSI failed: %v", err)
+		}
+	} else if conf.Interface == "screader" {
+		sim, err = ubirch.InitSmartCardReader(port, baud, conf.Debug)
+		if err != nil {
+			log.Fatalf("Failed to initialize the GPy modem")
+		}
+		imsi = conf.Imsi
+	} else {
+		log.Fatalf("Error: please select 'modem' or 'screader'")
 	}
+	defer sim.Close()
+
 	log.Printf("IMSI: %s", imsi)
 
 	// check if PIN is set in config and bootstrap if unset
@@ -153,7 +153,7 @@ func main() {
 
 	// register public key at the UBIRCH backend
 	// TODO registerKey(cert, conf) // not implemented in backend yet
-	registerKeyLegacy(&sim, key_name, uid, conf)
+	//	registerKeyLegacy(&sim, key_name, uid, conf)
 
 	// send a signed message
 	type Payload struct {

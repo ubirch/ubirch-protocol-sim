@@ -20,6 +20,8 @@ type Config struct {
 	Debug            bool   `json:"debug"`      // enable extended debug output		(optional)
 	Uuid             string `json:"uuid"`       // the device uuid 					(set UUID here if you want to generate a new key pair on the SIM card)
 	Pin              string `json:"pin"`        // the SIM pin						(set PIN here if bootstrapping is not possible)
+	Interface        string `json:"interface"`  // 'modem' for GPy modem or 'screader' for smartcard reader
+	Imsi             string `json:"imsi"`       // IMSI of the SIM card, only necessary, if Interface is screader
 }
 
 // Load the config file

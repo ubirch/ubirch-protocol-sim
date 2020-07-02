@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"github.com/sf1/go-card/smartcard"
 	"io/ioutil"
 	"log"
 	"math/big"
@@ -55,10 +54,11 @@ const (
 
 // test configuration file structure
 type testConfig struct {
-	SerialPort     string `json:"serialport"`     //Port for the serial connection
-	SerialBaudrate int    `json:"serialbaudrate"` //Speed for the serial connection
+	SerialPort     string `json:"serialport"`     // Port for the serial connection
+	SerialBaudrate int    `json:"serialbaudrate"` // Speed for the serial connection
 	Pin            string `json:"pin"`            // the SIM pin
 	Debug          bool   `json:"debug"`          // enable/disable extended debug output
+	Interface      string `json:"interface"`      // 'modem' for GPy modem or 'screader' for smartcard reader
 }
 
 //#############################################
@@ -82,33 +82,18 @@ func (c *testConfig) helperLoad(fn string) error {
 // helperSimInterface is a helper function to initialize th serial connection
 // to the SIM card, currently within a GPy.
 // It returns a the Protocol and 'nil' error, if successful
-func helperSimInterface(port string, baudrate int, debug bool) (Protocol, error) {
-	ctx, err := smartcard.EstablishContext()
-	if err != nil {
-		fmt.Println("Error EstablishContext:", err)
-		return Protocol{}, err
+func helperSimInterface(port string, baudrate int, debug bool, physicalInterface string) (Protocol, error) {
+
+	if physicalInterface == "modem" {
+		return InitGPyModem(port, baudrate, debug)
+	} else if physicalInterface == "screader" {
+		return InitSmartCardReader(port, baudrate, debug)
+	} else {
+		return Protocol{
+			SimInterface: nil,
+			Debug:        false,
+		}, fmt.Errorf("Error: please select 'modem' or 'screader'")
 	}
-	// defer ctx.Release()
-
-	reader, err := ctx.WaitForCardPresent()
-	if err != nil {
-		fmt.Println("Error WaitForCardPresent:", err)
-		return Protocol{}, err
-	}
-
-	card, err := reader.Connect()
-	if err != nil {
-		fmt.Println("Error Connect:", err)
-		return Protocol{}, err
-	}
-
-	//defer card.Disconnect()
-	fmt.Printf("Card ATR: %s\n", card.ATR())
-
-	scard := SCardReader{card, debug}
-	//serialPort.Init()
-
-	return Protocol{SCardInterface: &scard, Debug: debug}, err
 }
 
 // Load the configuration for the test environment
@@ -124,7 +109,7 @@ func helperSelectFalseApplet(p *Protocol) error {
 		log.Println(">> select wrong SIM applet")
 	}
 	const stkAppDefWrong = "D2760001180002FF34108389C0028B01"
-	_, code, err := p.execute(stkAppSelect, stkAppDefWrong)
+	_, code, err := p.Execute(stkAppSelect, stkAppDefWrong)
 	if err != nil {
 		return err
 	}
@@ -380,7 +365,7 @@ func TestMain(m *testing.M) {
 		log.Fatalf("ERROR, baudrate is not provided")
 	}
 	// Establish Interface to SIM and check if PIN is correct
-	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug, conf.Interface)
 	if err != nil {
 		log.Fatalf("ERROR initializing SIM interface: %v", err)
 	}
@@ -414,40 +399,43 @@ func TestSim_Init(t *testing.T) {
 
 	conf, err := helperLoadConfig()
 	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug, conf.Interface)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 	// test initializing the SIM applet
 	asserter.NoErrorf(sim.Init(conf.Pin), "Initializing Applet failed")
 }
 
-//// TestSim_GetIMSI tests getting the IMSI from the SIM card
-//// 		test if the IMSI has the correct length (15) and
-////		test if, when getting the IMSI a second time, it has the same value
-////	*NOTE*: no failure provocation implemented
-//func TestSim_GetIMSI(t *testing.T) {
-//	const imsiLength = 15
-//
-//	asserter := assert.New(t)
-//	requirer := require.New(t)
-//
-//	conf, err := helperLoadConfig()
-//	requirer.NoErrorf(err, "failed to load configuration")
-//	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
-//	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
-//	defer sim.Close()
-//
-//	// test getting the IMSI and check the length
-//	imsi, err := sim.GetIMSI()
-//	asserter.NoErrorf(err, "failed to get IMSI")
-//	asserter.Lenf(imsi, imsiLength, "IMSI has not the right length")
-//	// test getting the IMSI again and chek the length
-//	imsiProof, err := sim.GetIMSI()
-//	asserter.NoErrorf(err, "failed to get IMSI")
-//	asserter.Lenf(imsiProof, imsiLength, "IMSI has not the right length")
-//	// compare the two IMSI values, they have to be equal
-//	asserter.Equalf(imsi, imsiProof, "IMSI is not equal, at second reading")
-//}
+// TestSim_GetIMSI tests getting the IMSI from the SIM card
+// 		test if the IMSI has the correct length (15) and
+//		test if, when getting the IMSI a second time, it has the same value
+//	*NOTE*: no failure provocation implemented
+func TestSim_GetIMSI(t *testing.T) {
+	const imsiLength = 15
+
+	asserter := assert.New(t)
+	requirer := require.New(t)
+
+	conf, err := helperLoadConfig()
+	requirer.NoErrorf(err, "failed to load configuration")
+	if conf.Interface == "screader" {
+		t.Skipf("Getting IMSI is not an implemented APDU command for the SmartCard Reader")
+	}
+	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug, conf.Interface)
+	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
+	defer sim.Close()
+
+	// test getting the IMSI and check the length
+	imsi, err := sim.GetIMSI()
+	asserter.NoErrorf(err, "failed to get IMSI")
+	asserter.Lenf(imsi, imsiLength, "IMSI has not the right length")
+	// test getting the IMSI again and chek the length
+	imsiProof, err := sim.GetIMSI()
+	asserter.NoErrorf(err, "failed to get IMSI")
+	asserter.Lenf(imsiProof, imsiLength, "IMSI has not the right length")
+	// compare the two IMSI values, they have to be equal
+	asserter.Equalf(imsi, imsiProof, "IMSI is not equal, at second reading")
+}
 
 // TestSim_GenerateSourceRandom tests the random number generator of the SIM card,
 // this test does not read the keys and check if they are correct, or have changed.
@@ -462,7 +450,7 @@ func TestSim_GenerateKeyPair(t *testing.T) {
 
 	conf, err := helperLoadConfig()
 	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug, conf.Interface)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
@@ -498,7 +486,7 @@ func TestSim_VerifyPin(t *testing.T) {
 
 	conf, err := helperLoadConfig()
 	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug, conf.Interface)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 	// this is necessary before the PIN can be Verified
@@ -526,7 +514,7 @@ func TestSim_selectApplet(t *testing.T) {
 
 	conf, err := helperLoadConfig()
 	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug, conf.Interface)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
@@ -550,7 +538,7 @@ func TestSim_GenerateSecureRandom(t *testing.T) {
 
 	conf, err := helperLoadConfig()
 	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug, conf.Interface)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
@@ -589,7 +577,7 @@ func TestSim_GetCertificate(t *testing.T) {
 
 	conf, err := helperLoadConfig()
 	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug, conf.Interface)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
@@ -643,7 +631,7 @@ func TestSim_StoreCertificate(t *testing.T) {
 
 	conf, err := helperLoadConfig()
 	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug, conf.Interface)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
@@ -707,7 +695,7 @@ func TestSim_UpdateCertificate(t *testing.T) {
 
 	conf, err := helperLoadConfig()
 	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug, conf.Interface)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
@@ -793,7 +781,7 @@ func TestSim_GenerateCSR(t *testing.T) {
 
 	conf, err := helperLoadConfig()
 	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug, conf.Interface)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
@@ -832,7 +820,7 @@ func TestSim_GetAllSSEntries(t *testing.T) {
 
 	conf, err := helperLoadConfig()
 	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug, conf.Interface)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
@@ -865,7 +853,7 @@ func TestSim_GetKey(t *testing.T) {
 
 	conf, err := helperLoadConfig()
 	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug, conf.Interface)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
@@ -905,7 +893,7 @@ func TestSim_GetUUID(t *testing.T) {
 
 	conf, err := helperLoadConfig()
 	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug, conf.Interface)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
@@ -1005,7 +993,7 @@ func TestSIM_PutPubKey(t *testing.T) {
 	//initialize config/sim card
 	conf, err := helperLoadConfig()
 	require.NoErrorf(t, err, "failed to load configuration")
-	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug, conf.Interface)
 	require.NoErrorf(t, err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
@@ -1064,7 +1052,7 @@ func TestSim_Sign_RandomInput(t *testing.T) {
 	//do general preparation/initialization
 	conf, err := helperLoadConfig()
 	requirer.NoErrorf(err, "failed to load configuration")
-	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug, conf.Interface)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
@@ -1274,7 +1262,7 @@ func TestSIM_Sign_PassFail(t *testing.T) {
 			//do general preparation/initialization
 			conf, err := helperLoadConfig()
 			requirer.NoErrorf(err, "failed to load configuration")
-			sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+			sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug, conf.Interface)
 			requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 			defer sim.Close()
 
@@ -1506,7 +1494,7 @@ func TestSim_Verify(t *testing.T) {
 	//do general preparation/initialization
 	conf, err := helperLoadConfig()
 	require.NoErrorf(t, err, "failed to load configuration")
-	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
+	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug, conf.Interface)
 	require.NoErrorf(t, err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
