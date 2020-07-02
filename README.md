@@ -21,7 +21,7 @@ This most often will be a modem that supports the standard `AT+CSIM` command (3G
 - basic connectivity (via mobile network, wifi or other)
 - a Modem that supports the AT+CSIM commands to send APDU commands to the SIM card
 - registered [ubirch account](https://console.demo.ubirch.com/)
-
+- todo: add description for SmartCard Readers 
 ## Support
 
 If you are having problems, please contact us using our [help desk](https://ubirch.atlassian.net/servicedesk/customer/portal/1).
