@@ -597,12 +597,12 @@ func TestSim_GetCertificate(t *testing.T) {
 
 	// test getting Certificate with empty ID
 	certDER, err = sim.GetCertificate("ucrt") //todo, why are there so many trailing 0x00 ???
-	asserter.NoErrorf(err, "got Certificate for unknown ID")
-	asserter.NotNilf(certDER, "Certificate for unknown ID is not 'Nil'")
+	requirer.NoErrorf(err, "error getting certificate")
+	requirer.NotNilf(certDER, "Certificate for known ID is 'Nil'")
 	// check if it is a x509 certificate
 	certX509, err := x509.ParseCertificate(bytes.Trim(certDER, "\x00")) //todo, why are there so many trailing 0x00 ???
-	asserter.NoErrorf(err, "error parsing the Certificate")
-	asserter.NotNilf(certX509, "Certificate should not be Nil")
+	requirer.NoErrorf(err, "error parsing the Certificate")
+	requirer.NotNilf(certX509, "Certificate should not be Nil")
 
 	//read the intermediate certificate and convert it to a x509 certificate
 	imCertPEM, err := ioutil.ReadFile("IM_CA.pem")
