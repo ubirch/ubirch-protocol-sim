@@ -373,6 +373,19 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Fatalf("ERROR initializing SIM interface: %v", err)
 	}
+
+	// check SIM is available and open a separate logical channel to communicate with the SIM
+	err = sim.checkSIMAccess()
+	if err != nil {
+		sim.Close()
+		log.Fatalf("ERROR Could not access SIM\nReturned error: %v", err)
+	}
+	err = sim.openChannel()
+	if err != nil {
+		sim.Close()
+		log.Fatalf("ERROR Could not open APDU channel to SIM\nReturned error: %v", err)
+	}
+
 	// this is necessary before the PIN can be Verified
 	err = sim.selectApplet()
 	if err != nil {
@@ -383,6 +396,13 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		sim.Close()
 		log.Fatalf("ERROR PIN number is INCORRECT, please provide the correct PIN to continue\nReturned error: %v", err)
+	}
+
+	//we're done, close channel
+	err = sim.closeChannel()
+	if err != nil {
+		sim.Close()
+		log.Fatalf("ERROR Could not close APDU channel\nReturned error: %v", err)
 	}
 	sim.Close()
 
@@ -408,6 +428,8 @@ func TestSim_Init(t *testing.T) {
 	defer sim.Close()
 	// test initializing the SIM applet
 	asserter.NoErrorf(sim.Init(conf.Pin), "Initializing Applet failed")
+	//deinitialize the SIM/APDU interface
+	asserter.NoErrorf(sim.Deinit(), "Deinitializing SIM failed")
 }
 
 // TestSim_GetIMSI tests getting the IMSI from the SIM card
@@ -465,10 +487,9 @@ func TestSim_GenerateKeyPair(t *testing.T) {
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
-	// select Application APDU
-	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
-	// Verify PIN APDU
-	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+	//select and unlock SIM application, defer deinit/closing of APDU channel for later
+	requirer.NoErrorf(sim.Init(conf.Pin), "Initializing Applet failed")
+	defer sim.Deinit()
 
 	// test Generate Key Pair without name/ID
 	asserter.Errorf(sim.GenerateKey("", uuid.MustParse(testUUID)), "failed recognize empty name")
@@ -500,8 +521,10 @@ func TestSim_VerifyPin(t *testing.T) {
 	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
-	// this is necessary before the PIN can be Verified
-	requirer.NoErrorf(sim.selectApplet(), "failed to select the Applet")
+
+	//select and unlock SIM application, defer deinit/closing of APDU channel for later
+	requirer.NoErrorf(sim.Init(conf.Pin), "Initializing Applet failed")
+	defer sim.Deinit()
 
 	// test the wrong PIN
 	asserter.Errorf(sim.authenticate("0000"), "failed to falsify the PIN")
@@ -529,6 +552,10 @@ func TestSim_selectApplet(t *testing.T) {
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
+	//select and unlock SIM application, defer deinit/closing of APDU channel for later
+	requirer.NoErrorf(sim.Init(conf.Pin), "Initializing Applet failed")
+	defer sim.Deinit()
+
 	// test the wrong Application
 	asserter.Errorf(helperSelectFalseApplet(&sim), " failed to return error")
 
@@ -553,10 +580,9 @@ func TestSim_GenerateSecureRandom(t *testing.T) {
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
-	// select Application APDU
-	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
-	// Verify PIN APDU
-	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+	//select and unlock SIM application, defer deinit/closing of APDU channel for later
+	requirer.NoErrorf(sim.Init(conf.Pin), "Initializing Applet failed")
+	defer sim.Deinit()
 
 	// test Generate random number with 0 Bytes length
 	_, err = sim.Random(0)
@@ -592,10 +618,9 @@ func TestSim_GetCertificate(t *testing.T) {
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
-	// select Application APDU
-	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
-	// Verify PIN APDU
-	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+	//select and unlock SIM application, defer deinit/closing of APDU channel for later
+	requirer.NoErrorf(sim.Init(conf.Pin), "Initializing Applet failed")
+	defer sim.Deinit()
 
 	// test getting Certificate with unknown ID
 	certDER, err := sim.GetCertificate(testName)
@@ -646,10 +671,10 @@ func TestSim_StoreCertificate(t *testing.T) {
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
-	// select Application APDU
-	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
-	// Verify PIN APDU
-	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+	//select and unlock SIM application, defer deinit/closing of APDU channel for later
+	requirer.NoErrorf(sim.Init(conf.Pin), "Initializing Applet failed")
+	defer sim.Deinit()
+
 	// generate a new key pair
 	requirer.NoErrorf(sim.GenerateKey(defaultName, testUuid), "unable to generate key")
 	csrDER, err := sim.GenerateCSR(defaultName)
@@ -710,10 +735,10 @@ func TestSim_UpdateCertificate(t *testing.T) {
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
-	// select Application APDU
-	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
-	// Verify PIN APDU
-	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+	//select and unlock SIM application, defer deinit/closing of APDU channel for later
+	requirer.NoErrorf(sim.Init(conf.Pin), "Initializing Applet failed")
+	defer sim.Deinit()
+
 	// generate a new key pair
 	requirer.NoErrorf(sim.GenerateKey(defaultName, testUuid), "unable to generate key")
 	csrDER, err := sim.GenerateCSR(defaultName)
@@ -796,10 +821,9 @@ func TestSim_GenerateCSR(t *testing.T) {
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
-	// select Application APDU
-	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
-	// Verify PIN APDU
-	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+	//select and unlock SIM application, defer deinit/closing of APDU channel for later
+	requirer.NoErrorf(sim.Init(conf.Pin), "Initializing Applet failed")
+	defer sim.Deinit()
 
 	// test to get an invalid CSR from the SIM card
 	csr, err := sim.GenerateCSR(defaultName)
@@ -840,10 +864,9 @@ func TestSim_GetAllSSEntries(t *testing.T) {
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
-	// select Application APDU
-	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
-	// Verify PIN APDU
-	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+	//select and unlock SIM application, defer deinit/closing of APDU channel for later
+	requirer.NoErrorf(sim.Init(conf.Pin), "Initializing Applet failed")
+	defer sim.Deinit()
 
 	m, err := sim.GetAllSSEntries()
 	asserter.NoErrorf(err, "failed to get all SS Entries")
@@ -873,10 +896,9 @@ func TestSim_GetKey(t *testing.T) {
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
-	// select Application APDU
-	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
-	// Verify PIN APDU
-	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+	//select and unlock SIM application, defer deinit/closing of APDU channel for later
+	requirer.NoErrorf(sim.Init(conf.Pin), "Initializing Applet failed")
+	defer sim.Deinit()
 
 	// test empty name
 	pubKey, err := sim.GetKey("")
@@ -913,10 +935,9 @@ func TestSim_GetUUID(t *testing.T) {
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
-	// select Application APDU
-	requirer.NoErrorf(sim.selectApplet(), "failed to select the applet")
-	// Verify PIN APDU
-	requirer.NoErrorf(sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+	//select and unlock SIM application, defer deinit/closing of APDU channel for later
+	requirer.NoErrorf(sim.Init(conf.Pin), "Initializing Applet failed")
+	defer sim.Deinit()
 
 	// test empty name
 	uid, err := sim.GetUUID("")
@@ -1013,10 +1034,9 @@ func TestSIM_PutPubKey(t *testing.T) {
 	require.NoErrorf(t, err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
-	// select Application APDU
-	require.NoErrorf(t, sim.selectApplet(), "failed to select the applet")
-	// Verify PIN APDU
-	require.NoErrorf(t, sim.authenticate(conf.Pin), "failed to initialize the SIM application")
+	//select and unlock SIM application, defer deinit/closing of APDU channel for later
+	require.NoErrorf(t, sim.Init(conf.Pin), "Initializing Applet failed")
+	defer sim.Deinit()
 
 	//Iterate over all tests
 	for _, currTest := range tests {
@@ -1071,6 +1091,10 @@ func TestSim_Sign_RandomInput(t *testing.T) {
 	sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
 	requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
+
+	//select and unlock SIM application, defer deinit/closing of APDU channel for later
+	requirer.NoErrorf(sim.Init(conf.Pin), "Initializing Applet failed")
+	defer sim.Deinit()
 
 	//get the pubkey from the SIM. we use the standard key, which should be on every card
 	simPubkeyBytes, err := sim.GetKey(ubirchKeyName)
@@ -1276,6 +1300,10 @@ func TestSIM_Sign_PassFail(t *testing.T) {
 			sim, err := helperSimInterface(conf.SerialPort, conf.SerialBaudrate, conf.Debug)
 			requirer.NoErrorf(err, "failed to initialize the Serial connection to SIM")
 			defer sim.Close()
+
+			//select and unlock SIM application, defer deinit/closing of APDU channel for later
+			requirer.NoErrorf(sim.Init(conf.Pin), "Initializing Applet failed")
+			defer sim.Deinit()
 
 			//load test data
 			data, err := hex.DecodeString(currTest.inputData)
@@ -1504,6 +1532,10 @@ func TestSim_Verify(t *testing.T) {
 	require.NoErrorf(t, err, "failed to initialize the Serial connection to SIM")
 	defer sim.Close()
 
+	//select and unlock SIM application, defer deinit/closing of APDU channel for later
+	require.NoErrorf(t, sim.Init(conf.Pin), "Initializing Applet failed")
+	defer sim.Deinit()
+
 	//Iterate over all tests
 	for _, currTest := range tests {
 		t.Run(currTest.testName, func(t *testing.T) {
@@ -1729,11 +1761,21 @@ func TestExecuteSimpleOkWithData(t *testing.T) {
 }
 
 func TestProtocol_Init_Mock(t *testing.T) {
+	initResponses := func(cmd string) ([]string, error) {
+		switch cmd {
+		case "AT+CFUN?":
+			return []string{"+CFUN: 4", "OK"}, nil
+		case "AT+CSIM=?":
+			return []string{"OK"}, nil
+		case "AT+CSIM=10,\"0070000001\"":
+			return []string{"+CSIM: 6,019000", "OK"}, nil
+		default:
+			return []string{"+CSIM: 4,9000", "OK"}, nil
+		}
+	}
 	conf, err := helperLoadConfig()
 	require.NoErrorf(t, err, "failed to load configuration")
-	sim := Protocol{MockSimSerialPort{func(s string) ([]string, error) {
-		return []string{"+CSIM: 4,9000", "OK"}, nil
-	}}, conf.Debug, 0}
+	sim := Protocol{MockSimSerialPort{initResponses}, conf.Debug, 0}
 	err = sim.Init("1234")
 	if err != nil {
 		t.Errorf("init failed: %v", err)
