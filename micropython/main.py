@@ -122,22 +122,22 @@ device_uuid = ubirch.get_uuid(device_name)
 print("UUID: {}\n".format(device_uuid))
 
 # try to get X.509 certificate from SIM
-csr = b''
+cert = b''
 try:
-    csr = ubirch.get_certificate(cert_id)
-    print("X.509 certificate [hex]   : " + binascii.hexlify(csr).decode())
-    print("X.509 certificate [base64]: " + binascii.b2a_base64(csr).decode())
+    cert = ubirch.get_certificate(cert_id)
+    print("X.509 certificate [hex]   : " + binascii.hexlify(cert).decode())
+    print("X.509 certificate [base64]: " + binascii.b2a_base64(cert).decode())
 except Exception as e:
     print("getting X.509 certificate from SIM failed: {}\n".format(e))
 
     # create a self-signed certificate for the public key
     print("-- creating self-signed certificate for identity {}".format(device_uuid))
-    csr = get_certificate(device_name, device_uuid, ubirch)
-    print("cert: {}\n".format(csr.decode()))
+    cert = get_certificate(device_name, device_uuid, ubirch)
+    print("cert: {}\n".format(cert.decode()))
 
     # register public key at ubirch key service
     try:
-        print("resp: {}\n".format(register_key(KEY_SERVER, cfg["password"], csr).decode()))
+        print("resp: {}\n".format(register_key(KEY_SERVER, cfg["password"], cert).decode()))
     except Exception as e:
         set_led(LED_ORANGE)
         sys.print_exception(e)
