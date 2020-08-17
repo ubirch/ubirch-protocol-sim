@@ -47,7 +47,9 @@ def reset():
 
 def nb_iot_attach(lte: LTE, apn: str):
     sys.stdout.write(">> attaching to LTE network ({})".format(apn))
-    lte.attach(band=8, apn=apn)
+    # since we disable unsolicited CEREG messages in reset_modem(), as they interfere with AT communication with the SIM via CSIM commands,
+    # we are required to use an attach method that does not require cereg messages, for pycom that is legacyattach=false
+    lte.attach(band=8, apn=apn,legacyattach=False)
     i = 0
     while not lte.isattached() and i < 60:
         machine.idle()  # save power while waiting
@@ -156,6 +158,42 @@ def set_modem_func_lvl(lte: LTE, func_lvl: int):
     if modem_suspended:
         lte.pppresume()
     raise Exception("setting up modem failed: {}".format(repr(result)))
+
+def reset_modem(lte: LTE, debug_print=False):
+    function_level = "1"
+    cereg_level = "0"
+
+    if debug_print: print("\twaiting for reset to finish")
+    lte.reset()
+    lte.init()
+
+    if debug_print: print("\tsetting function level")
+    for tries in range(5):
+        _send_at_cmd(lte, "AT+CFUN=" + function_level)
+        result = _send_at_cmd(lte, "AT+CFUN?")
+        if result[0] == '+CFUN: ' + function_level:
+            break
+    else:
+        raise Exception("could not set modem function level")
+
+    if debug_print: print("\twaiting for SIM to be responsive")
+    for tries in range(10):
+        result = _send_at_cmd(lte, "AT+CIMI")
+        if result[-1] == 'OK':
+            break
+    else:
+        raise Exception("SIM does not seem to respond after reset")
+
+    if debug_print: print("\tdisabling CEREG messages")
+    # we disable unsolicited CEREG messages, as they interfere with AT communication with the SIM via CSIM commands
+    # this also requires to use an attach method that does not require cereg messages, for pycom that is legacyattach=false
+    for tries in range(5):
+        _send_at_cmd(lte, "AT+CEREG=" + cereg_level)
+        result = _send_at_cmd(lte, "AT+CEREG?")
+        if result[0][0:9] == '+CEREG: ' + cereg_level:
+            break
+    else:
+        raise Exception("could not set CEREG level")
 
 
 def get_imsi(lte: LTE) -> str:

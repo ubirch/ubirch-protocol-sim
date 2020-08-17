@@ -27,8 +27,7 @@ lte = LTE()
 if machine.reset_cause() != machine.DEEPSLEEP_RESET:
     #if we are not coming from deepsleep, the modem is probably in a strange state -> reset
     print("Not coming from sleep, resetting modem to be safe...")
-    lte.reset()
-    lte.init()
+    reset_modem(lte,debug_print=cfg.get("debug", False))
 
 if 'wifi' in cfg:
     nb_iot_connection = False
