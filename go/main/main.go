@@ -32,6 +32,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// load configuration from file
+	conf := Config{}
+	err = conf.Load("config.json")
+	if err != nil {
+		log.Fatalf("loading configuration failed: %v", err)
+	}
+
 	mode := &serial.Mode{
 		BaudRate: baud,
 		Parity:   serial.NoParity,
@@ -43,22 +50,14 @@ func main() {
 		log.Printf("serial port open failed: %v\n", err)
 		os.Exit(1)
 	}
-	serialPort := ubirch.SimSerialPort{Port: s, Debug: false}
-	serialPort.Init()
-
+	serialPort := ubirch.SimSerialPort{Port: s, Debug: conf.Debug}
 	//noinspection GoUnhandledErrorResult
 	defer serialPort.Close()
 
-	conf := Config{}
-	err = conf.Load("config.json")
-	if err != nil {
-		log.Fatalf("loading configuration failed: %v", err)
-	}
-
-	sim := ubirch.Protocol{SimInterface: &serialPort, Debug: conf.Debug}
+	serialPort.Init()
 
 	// get SIM IMSI
-	imsi, err := sim.GetIMSI()
+	imsi, err := serialPort.GetIMSI()
 	if err != nil {
 		log.Fatalf("getting IMSI failed: %v", err)
 	}
@@ -72,7 +71,10 @@ func main() {
 			log.Fatalf("bootstrapping failed: %v", err)
 		}
 	}
-	log.Printf("PIN: %s", PIN)
+
+	sim := ubirch.Protocol{SimInterface: &serialPort, Debug: conf.Debug}
+	//noinspection GoUnhandledErrorResult
+	defer sim.Deinit()
 
 	// initialize the ubirch protocol sim interface
 	err = sim.Init(PIN)
@@ -83,8 +85,7 @@ func main() {
 	key_name := "ukey"
 	cert_name := "ucrt"
 
-	//// generate a key pair
-	//// FIXME overwrites existing keys
+	//// generate a key pair !!overwrites existing keys!!
 	//uuidBytes, err := hex.DecodeString(conf.Uuid)
 	//if err != nil {
 	//	log.Fatalf("failed to decode hex string: %v", err)
@@ -98,62 +99,33 @@ func main() {
 	//	log.Printf("generating key \"%s\" failed: %v", key_name, err)
 	//}
 
-	// get the public key from SIM card
-	key, err := sim.GetKey(key_name)
-	if err != nil {
-		log.Fatalf("getting key %s failed: %v", key_name, err)
-	}
-	log.Printf("public key [base64]: %s", base64.StdEncoding.EncodeToString(key))
-	log.Printf("public key [hex]:    %s", hex.EncodeToString(key))
-
-	// get the UUID corresponding to the key
+	// get the UUID associated with the key entry ID
 	uid, err := sim.GetUUID(key_name)
 	if err != nil {
 		log.Fatalf("getting UUID from entry \"%s\" failed: %s", key_name, err)
 	}
 	log.Printf("UUID: %s", uid.String())
 
-	//// generate CSR
-	//csr, err := sim.GenerateCSR(key_name, uid)
-	//if err != nil {
-	//	log.Fatalf("unable to produce CSR: %v", err)
-	//} else {
-	//	log.Printf("CSR: " + hex.EncodeToString(csr))
-	//}
-	//
-	//// read certificate from file
-	//cert, err := ioutil.ReadFile("sim_cert.txt")
-	//if err != nil {
-	//	log.Fatalf("can't read certificate from file")
-	//}
-	//certBytes, err := hex.DecodeString(string(cert))
-	//
-	//// store certificate in SIM card
-	//err = sim.StoreCertificate(cert_name, uid, certBytes)
-	//if err != nil {
-	//	log.Fatalf("storing certificate failed. %s", err)
-	//} else {
-	//	log.Println("certificate stored")
-	//}
-	//
-	//// update certificate
-	//err = sim.UpdateCertificate(cert_name, certBytes)
-	//if err != nil {
-	//	log.Fatalf("can't update certificate on SIM")
-	//} else {
-	//	log.Println("updated certificate on SIM")
-	//}
+	// get the public key from SIM card
+	key, err := sim.GetKey(key_name)
+	if err != nil {
+		log.Fatalf("getting key %s failed: %v", key_name, err)
+	}
+	log.Printf("public key [base64]: %s", base64.StdEncoding.EncodeToString(key))
+
+	// create a X.509 certificate signing request (CSR)
+	csr, err := sim.GenerateCSR(key_name)
+	if err != nil {
+		log.Fatalf("unable to create CSR: %v", err)
+	}
+	log.Printf("X.509 CSR: " + hex.EncodeToString(csr))
 
 	// get X.509 certificate from SIM card
 	cert, err := sim.GetCertificate(cert_name)
 	if err != nil {
 		log.Fatalf("retrieving certificate from SIM failed. %s", err)
 	}
-	log.Printf("retrieved certificate from SIM: %x", cert)
-
-	// register public key at the UBIRCH backend
-	// TODO registerKey(cert, conf) // not implemented in backend yet
-	registerKeyLegacy(&sim, key_name, uid, conf)
+	log.Printf("X.509 certificate: %x", cert)
 
 	// send a signed message
 	type Payload struct {
@@ -171,7 +143,7 @@ func main() {
 
 	// create a hash from the payload
 	digest := sha256.Sum256(pRendered)
-	log.Printf("data hash [base64]: %s", base64.StdEncoding.EncodeToString(digest[:]))
+	log.Printf("hash [base64]: %s", base64.StdEncoding.EncodeToString(digest[:]))
 
 	// create a signed UPP message
 	//upp, err := sim.Sign(name, digest[:], ubirch.Signed, false) // insert hash into the UPP
@@ -202,7 +174,7 @@ func main() {
 
 		// create a hash from the payload
 		digest := sha256.Sum256(pRendered)
-		log.Printf("data hash [base64]: %s", base64.StdEncoding.EncodeToString(digest[:]))
+		log.Printf("hash [base64]: %s", base64.StdEncoding.EncodeToString(digest[:]))
 
 		// create a signed UPP message
 		//upp, err := sim.Sign(name, digest[:], ubirch.Chained, false)
@@ -230,34 +202,6 @@ func getPIN(imsi string, conf Config) (string, error) {
 	}
 	// bootstrap SIM identity and retrieve PIN
 	return bootstrap(imsi, conf.BootstrapService, conf.Password)
-}
-
-// send a self signed JSON formatted key registration message to the UBIRCH backend
-func registerKeyLegacy(p *ubirch.Protocol, name string, uid uuid.UUID, conf Config) {
-	if conf.Password == "" {
-		return
-	}
-	// todo this will be replaced by the X.509 cert from SIM card
-	// generate a self signed certificate for the public key
-	cert, err := getSignedCertificate(p, name, uid)
-	if err != nil {
-		log.Fatalf("could not generate key certificate: %v", err)
-	}
-	log.Printf("certificate: %s", string(cert))
-
-	statusCode, respBody, err := post(cert, conf.KeyService, map[string]string{"Content-Type": "application/json"})
-	if err != nil {
-		log.Fatalf("ERROR: sending key registration failed: %v", err)
-	}
-	if statusCode != http.StatusOK {
-		log.Fatalf("ERROR: request to %s failed with status code %d: %s", conf.KeyService, statusCode, respBody)
-	}
-	log.Printf("key registration successful. response: %s", string(respBody))
-}
-
-// send a X.509 public key certificate to the UBIRCH backend
-func registerKey(cert []byte, conf Config) error {
-	return fmt.Errorf("not implemented yet")
 }
 
 // send UPP to the UBIRCH backend

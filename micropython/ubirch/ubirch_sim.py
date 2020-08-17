@@ -132,33 +132,36 @@ class SimProtocol:
 
         If there is already a channel to the SIM it can be specified with channel=X. Supported
         channel values are 0-3. If not specified a new channel will be requested from the SIM
-        and set automatically.        
+        and set automatically.
         """
+        if channel is not None and channel not in supported_channels:
+            raise Exception("unsupported channel: 0x{:X}".format(self._channel))
         self._channel = channel
         self.lte = lte
-        self._AT_session_active = False #wether or not the lib currently opened an AT commands session
-        self._AT_session_modem_suspended = False #wether the modem was suspended for an AT session
+        self._AT_session_active = False  # wether or not the lib currently opened an AT commands session
+        self._AT_session_modem_suspended = False  # wether the modem was suspended for an AT session
         self.DEBUG = at_debug
         self.init()
 
+    def __del__(self):
+        self.deinit()
+
     def init(self):
         self._prepare_AT_session()
+        try:
+            # make sure we can access the SIM
+            if not self._check_sim_access():
+                raise Exception("couldn't access SIM")
 
-        if not self._check_sim_access():
+            # if no channel set: open a new communication channel to SIM and save it
+            if self._channel is None:
+                self._channel = self._open_channel()
+
+            # select the SIGNiT application
+            if not self._select_app():
+                raise Exception("selecting SIM application failed")
+        finally:
             self._finish_AT_session()
-            raise Exception("couldn't access SIM")
-
-        # if no channel set: open a new communication channel to SIM and save it
-        if self._channel is None:
-            self._channel = self._open_channel()
-
-        # select the SIGNiT application
-        if self.DEBUG: print("\n>> selecting SIM application")
-        if not self._select_app():
-            self._finish_AT_session()
-            raise Exception("selecting SIM application failed")
-
-        self._finish_AT_session()
 
     def deinit(self):
         """
@@ -167,14 +170,13 @@ class SimProtocol:
         reset. Does not deinitialize/disconnect the LTE.
         """
         self._prepare_AT_session()
-        # Close logical channel to SIM if open
-        if self._channel is not None and self._channel is not 0:
-            if self._close_channel(self._channel):
+        try:
+            # Close logical channel to SIM if open
+            if self._channel is not None and self._channel is not 0:
+                self._close_channel(self._channel)
                 self._channel = None
-            else:
-                self._finish_AT_session()
-                raise Exception("Unable to close channel {}".format(self._channel))
-        self._finish_AT_session()
+        finally:
+            self._finish_AT_session()
 
     def _prepare_AT_session(self):
         """
@@ -184,11 +186,11 @@ class SimProtocol:
         if self._AT_session_active:
             return
 
-        #if modem is connected, suspend it and remember that we did
+        # if modem is connected, suspend it and remember that we did
         if self.lte.isconnected():
             self.lte.pppsuspend()
             self._AT_session_modem_suspended = True
-        
+
         self._AT_session_active = True
 
     def _finish_AT_session(self):
@@ -198,13 +200,12 @@ class SimProtocol:
         if not self._AT_session_active:
             return
 
-        #if modem was suspended for the session, restore it
+        # if modem was suspended for the session, restore it
         if self._AT_session_modem_suspended:
             self.lte.pppresume()
             self._AT_session_modem_suspended = False
 
         self._AT_session_active = False
-
 
     def _send_at_cmd(self, cmd):
         if self.DEBUG: print("++ " + cmd)
@@ -233,18 +234,20 @@ class SimProtocol:
 
         return assigned_channel
 
-    def _close_channel(self, channel_to_close: int) -> bool:
+    def _close_channel(self, channel_to_close: int):
         """
         Closes the specified logical channel to the SIM (see ISO 7816 part 4 sect. 6.16)
         Always uses channel 0 (basic channel) for request. Does not change the internal
-        channel used by the class. Returns true if closing was successful.
+        channel used by the class.
+        Throws an exception if closing channel failed.
         """
         old_channel = self._channel  # save lib channel
         self._channel = 0  # send on basic channel
         _, code = self._execute(STK_CLOSE_CHANNEL.format(channel_to_close))  # send
         self._channel = old_channel  # restore lib channel
 
-        return code == STK_OK
+        if code != STK_OK:
+            raise Exception("couldn't close channel: {}".format(code))
 
     def _execute(self, cmd: str) -> (bytes, str):
         """
@@ -336,6 +339,7 @@ class SimProtocol:
         """
         Select the SIM application to execute secure operations.
         """
+        if self.DEBUG: print("\n>> selecting SIM application")
         for _ in range(2):
             time.sleep(0.2)
             data, code = self._execute(STK_APP_SELECT.format(APP_DF))
@@ -360,20 +364,22 @@ class SimProtocol:
             print('found entry: ' + repr(_decode_tag(data)))
         return data, code
 
-    def sim_auth(self, pin: str) -> bool:
+    def sim_auth(self, pin: str):
         """
         Authenticate against the SIM application to be able to use secure operations.
+        Throws an exception if PIN not accepted.
         :param pin: the pin to use for authentication
-        :return: True if the operation was successful
         """
         if self.DEBUG: print("\n>> unlocking SIM")
         self._prepare_AT_session()
-        # FIXME do not print PIN authentication AT command
-        data, code = self._execute(STK_AUTH_PIN.format(len(pin), binascii.hexlify(pin).decode()))
-        self._finish_AT_session()
+        try:
+            # FIXME do not print PIN authentication AT command
+            data, code = self._execute(STK_AUTH_PIN.format(len(pin), binascii.hexlify(pin).decode()))
+        finally:
+            self._finish_AT_session()
+
         if code != STK_OK:
-            print(code)
-        return code == STK_OK
+            raise Exception("PIN not accepted: {}".format(code))
 
     def random(self, length: int) -> bytes:
         """
@@ -383,11 +389,15 @@ class SimProtocol:
         """
         if self.DEBUG: print("\n>> generating random data with length " + str(length))
         self._prepare_AT_session()
-        data, code = self._execute(STK_APP_RANDOM.format(length))
-        self._finish_AT_session()
+        try:
+            data, code = self._execute(STK_APP_RANDOM.format(length))
+        finally:
+            self._finish_AT_session()
+
         if code == STK_OK:
             return data
-        raise Exception(code)
+
+        raise Exception("received unexpected response code: {}".format(code))
 
     def erase(self) -> [(int, bytes)]:
         """
@@ -395,17 +405,27 @@ class SimProtocol:
         """
         print("\n>> erasing ALL SS entries")
         self._prepare_AT_session()
-        data, code = self._execute(STK_APP_DELETE_ALL)
-        self._finish_AT_session()
+        try:
+            data, code = self._execute(STK_APP_DELETE_ALL)
+        finally:
+            self._finish_AT_session()
 
         return data, code
 
     def entry_exists(self, entry_id: str):
         if self.DEBUG: print("\n>> looking for entry ID \"{}\"".format(entry_id))
         self._prepare_AT_session()
-        _, code = self._execute(STK_APP_SS_SELECT.format(len(entry_id), binascii.hexlify(entry_id).decode()))
-        self._finish_AT_session()
-        return code[0:2] == '61'
+        try:
+            _, code = self._execute(STK_APP_SS_SELECT.format(len(entry_id), binascii.hexlify(entry_id).decode()))
+        finally:
+            self._finish_AT_session()
+
+        if code[0:2] == '61':
+            return True
+        if code == STK_NF:
+            return False
+
+        raise Exception("received unexpected response code: {}".format(code))
 
     def store_public_key(self, entry_id: str, uuid: UUID, pub_key: bytes):
         """
@@ -429,8 +449,11 @@ class SimProtocol:
                             (0xC3, bytes([0x04]) + pub_key)  # Public key to be stored (SEC format)
                             ])
         self._prepare_AT_session()
-        data, code = self._send_cmd_in_chunks(STK_APP_KEY_STORE, args)
-        self._finish_AT_session()
+        try:
+            data, code = self._send_cmd_in_chunks(STK_APP_KEY_STORE, args)
+        finally:
+            self._finish_AT_session()
+
         if code != STK_OK:
             raise Exception("storing key failed: {}".format(code))
 
@@ -442,24 +465,21 @@ class SimProtocol:
         """
         if self.DEBUG: print("\n>> getting public key with entry ID \"{}\"".format(entry_id))
         self._prepare_AT_session()
-        # select SS public key entry
         try:
+            # select SS public key entry
             data, code = self._select_ss_entry(entry_id)
-        except Exception:
-            self._finish_AT_session()
-            raise
-        if code == STK_OK:
-            # get the key
-            args = _encode_tag([(0xD0, bytes([0x00]))])
-            data, code = self._execute(STK_APP_KEY_GET.format(int(len(args) / 2), args))
-            data, code = self._get_response(code)
             if code == STK_OK:
-                self._finish_AT_session()
-                # remove the fixed 0x04 prefix from the key entry_id
-                return [tag[1][1:] for tag in _decode_tag(data) if tag[0] == 0xc3][0]
+                # get the key
+                args = _encode_tag([(0xD0, bytes([0x00]))])
+                data, code = self._execute(STK_APP_KEY_GET.format(int(len(args) / 2), args))
+                data, code = self._get_response(code)
+                if code == STK_OK:
+                    # remove the fixed 0x04 prefix from the key entry_id
+                    return [tag[1][1:] for tag in _decode_tag(data) if tag[0] == 0xc3][0]
 
-        self._finish_AT_session()
-        raise Exception(code)
+            raise Exception("received unexpected response code: {}".format(code))
+        finally:
+            self._finish_AT_session()
 
     def generate_key(self, entry_id: str, uuid: UUID):
         """
@@ -483,10 +503,13 @@ class SimProtocol:
                             (0xC1, bytes([0x03]))
                             ])
         self._prepare_AT_session()
-        data, code = self._execute(STK_APP_KEY_GENERATE.format(int(len(args) / 2), args))
-        self._finish_AT_session()
+        try:
+            data, code = self._execute(STK_APP_KEY_GENERATE.format(int(len(args) / 2), args))
+        finally:
+            self._finish_AT_session()
+
         if code != STK_OK:
-            raise Exception(code)
+            raise Exception("received unexpected response code: {}".format(code))
 
     def get_entry_title(self, entry_id: str) -> bytes:
         """
@@ -496,16 +519,17 @@ class SimProtocol:
         """
         if self.DEBUG: print("\n>> getting entry title of entry with ID \"{}\"".format(entry_id))
         self._prepare_AT_session()
-        # select SS entry
         try:
+            # select SS entry
             data, code = self._select_ss_entry(entry_id)
         finally:
             self._finish_AT_session()
+
         if code == STK_OK:
             # get the entry title
             return [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc0][0]
 
-        raise Exception(code)
+        raise Exception("received unexpected response code: {}".format(code))
 
     def get_uuid(self, entry_id: str) -> UUID:
         """
@@ -514,26 +538,6 @@ class SimProtocol:
         :return: the UUID
         """
         return UUID(self.get_entry_title(entry_id))
-
-    def get_verification_key(self, uuid: UUID) -> bytes:
-        """
-        Get the public key associated with a given UUID from the SIM storage.
-        :param uuid: the entry title of the verification key to look for
-        :return: the public key bytes
-        """
-        if self.DEBUG: print("\n>> getting public key associated with entry title \"{}\"".format(uuid.hex))
-        self._prepare_AT_session()
-        # get the entry ID that has UUID as entry title
-        data, code = self._execute(STK_APP_SS_ENTRY_ID_GET.format(int(len(uuid.hex) / 2), uuid.hex))
-        data, code = self._get_response(code)
-        self._finish_AT_session()
-        if code == STK_OK:
-            key_name = [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc4][0]
-            # get the public key with that entry ID
-            if self.DEBUG: print("found entry ID \"{}\"".format(key_name.decode()))
-            return self.get_key(key_name.decode().lstrip("_"))
-
-        raise Exception(code)
 
     def generate_csr(self, entry_id: str) -> bytes:
         """
@@ -562,10 +566,13 @@ class SimProtocol:
         ])
 
         self._prepare_AT_session()
-        _, code = self._send_cmd_in_chunks(STK_APP_CSR_GENERATE_FIRST, args)
-        data, code = self._get_response(code)  # get first part of CSR
-        data, code = self._get_more_data(code, data, STK_APP_CSR_GENERATE_NEXT)  # get next part of CSR
-        self._finish_AT_session()
+        try:
+            _, code = self._send_cmd_in_chunks(STK_APP_CSR_GENERATE_FIRST, args)
+            data, code = self._get_response(code)  # get first part of CSR
+            data, code = self._get_more_data(code, data, STK_APP_CSR_GENERATE_NEXT)  # get next part of CSR
+        finally:
+            self._finish_AT_session()
+
         if code == STK_OK:
             return data
 
@@ -579,23 +586,19 @@ class SimProtocol:
         """
         if self.DEBUG: print("\n>> getting X.509 certificate with entry ID \"{}\"".format(certificate_entry_id))
         self._prepare_AT_session()
-        # select SS certificate entry
         try:
+            # select SS certificate entry
             data, code = self._select_ss_entry(certificate_entry_id)
-        except Exception:
-            self._finish_AT_session()
-            raise
-
-        if code == STK_OK:
-            # get the certificate
-            data, code = self._execute(STK_APP_CERT_GET.format(0))
-            data, code = self._get_more_data(code, data, STK_APP_CERT_GET.format(1))
             if code == STK_OK:
-                self._finish_AT_session()
-                return [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc3][0]
+                # get the certificate
+                data, code = self._execute(STK_APP_CERT_GET.format(0))
+                data, code = self._get_more_data(code, data, STK_APP_CERT_GET.format(1))
+                if code == STK_OK:
+                    return [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc3][0]
 
-        self._finish_AT_session()
-        raise Exception(code)
+            raise Exception("received unexpected response code: {}".format(code))
+        finally:
+            self._finish_AT_session()
 
     def sign(self, entry_id: str, value: bytes, protocol_version: int, hash_before_sign: bool = False) -> bytes:
         """
@@ -613,17 +616,18 @@ class SimProtocol:
             protocol_version |= 0x40  # set flag for automatic hashing
         args = _encode_tag([(0xC4, ('_' + entry_id).encode()), (0xD0, bytes([0x21]))])
         self._prepare_AT_session()
-        _, code = self._execute(STK_APP_SIGN_INIT.format(protocol_version, int(len(args) / 2), args))
-        if code == STK_OK:
-            args = binascii.hexlify(value).decode()
-            _, code = self._send_cmd_in_chunks(STK_APP_SIGN_FINAL, args)
-            data, code = self._get_response(code)
+        try:
+            _, code = self._execute(STK_APP_SIGN_INIT.format(protocol_version, int(len(args) / 2), args))
             if code == STK_OK:
-                self._finish_AT_session()
-                return data
+                args = binascii.hexlify(value).decode()
+                _, code = self._send_cmd_in_chunks(STK_APP_SIGN_FINAL, args)
+                data, code = self._get_response(code)
+                if code == STK_OK:
+                    return data
 
-        self._finish_AT_session()
-        raise Exception(code)
+            raise Exception("received unexpected response code: {}".format(code))
+        finally:
+            self._finish_AT_session()
 
     def verify(self, entry_id: str, value: bytes, protocol_version: int) -> bool:
         """
@@ -636,18 +640,19 @@ class SimProtocol:
         """
         args = _encode_tag([(0xC4, entry_id.encode()), (0xD0, bytes([0x21]))])
         self._prepare_AT_session()
-        _, code = self._execute(STK_APP_VERIFY_INIT.format(protocol_version, int(len(args) / 2), args))
-        if code == STK_OK:
-            args = binascii.hexlify(value).decode()
-            _, code = self._send_cmd_in_chunks(STK_APP_VERIFY_FINAL, args)
-            self._finish_AT_session()
+        try:
+            _, code = self._execute(STK_APP_VERIFY_INIT.format(protocol_version, int(len(args) / 2), args))
             if code == STK_OK:
-                return True
-            if code == '6988':
-                return False
+                args = binascii.hexlify(value).decode()
+                _, code = self._send_cmd_in_chunks(STK_APP_VERIFY_FINAL, args)
+                if code == STK_OK:
+                    return True
+                if code == '6988':
+                    return False
 
-        self._finish_AT_session()
-        raise Exception(code)
+            raise Exception("received unexpected response code: {}".format(code))
+        finally:
+            self._finish_AT_session()
 
     def message_signed(self, name: str, payload: bytes, hash_before_sign: bool = False) -> bytes:
         """

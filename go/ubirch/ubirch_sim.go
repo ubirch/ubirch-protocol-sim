@@ -24,7 +24,8 @@ type SimInterface interface {
 
 type Protocol struct {
 	SimInterface
-	Debug bool
+	Debug   bool
+	channel int
 }
 
 type Tag struct {
@@ -62,8 +63,10 @@ const (
 	stkAppDef = "D2760001180002FF34108389C0028B02"
 
 	// SIM toolkit commands
-	stkGetResponse = "00C00000%02X"   // get a pending response
-	stkAuthPin     = "00200000%02X%s" // authenticate with pin ([1], 2.1.2)
+	stkGetResponse  = "00C00000%02X"   // get a pending response
+	stkAuthPin      = "00200000%02X%s" // authenticate with pin ([1], 2.1.2)
+	stkOpenChannel  = "0070000001"     // open new logical channel to SIM (ISO 7816 part 4 sect. 6.16)
+	stkCloseChannel = "007080%02X00"   // close a logical channel (ISO 7816 part 4 sect. 6.16)
 
 	// Generic app commands
 	stkAppSelect              = "00A4040010%s"   // APDU Select Application ([1], 2.1.1)
@@ -122,11 +125,11 @@ func (p *Protocol) encodeBinary(tags []Tag) ([]byte, error) {
 
 // encode Tags into a hex encoded string.
 func (p *Protocol) encode(tags []Tag) (string, error) {
-	binary, err := p.encodeBinary(tags)
+	bin, err := p.encodeBinary(tags)
 	if err != nil {
 		return "", err
 	}
-	return strings.ToUpper(hex.EncodeToString(binary)), nil
+	return strings.ToUpper(hex.EncodeToString(bin)), nil
 }
 
 // decode Tags from binary format.
@@ -167,6 +170,15 @@ func (p *Protocol) decode(s string, debug ...bool) ([]Tag, error) {
 // executes an APDU command and returns the response
 func (p *Protocol) execute(format string, v ...interface{}) (string, uint16, error) {
 	cmd := fmt.Sprintf(format, v...)
+	// check if this is a command where the CLA byte contains channel info (see ISO 7816 part 4 sect. 5.4.1)
+	if cmd[0:1] == "0" || cmd[0:1] == "8" || cmd[0:1] == "9" || cmd[0:1] == "A" {
+		if cmd[1:2] != "0" {
+			return "", 0, fmt.Errorf("invalid CLA byte (0x%s) of command %s: indicates specific channel or secure messaging (not supported)", cmd[0:2], cmd)
+		}
+		// encode channel into command
+		cmd = cmd[:1] + fmt.Sprintf("%X", p.channel) + cmd[2:]
+	}
+
 	atcmd := fmt.Sprintf("AT+CSIM=%d,\"%s\"", len(cmd), cmd)
 	response, err := p.Send(atcmd)
 	if err != nil {
@@ -261,21 +273,97 @@ func (p *Protocol) authenticate(pin string) error {
 	return nil
 }
 
-// Initialize the SIM card application by authenticating with the SIM with the given pin.
-func (p *Protocol) Init(pin string) error {
-	var err error
-	// sometimes the modem is not ready yet, so we try again, if it fails
-	for i := 0; i < 3; i++ {
-		err = p.selectApplet()
-		if err == nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+// Open a new logical channel to communicate with the SIM (see ISO 7816 part 4 sect. 6.16)
+// Always uses channel 0 (basic channel) for request.  Sets the protocol object's internal channel if operation
+// was successful. Returns error if the SIM does not assign a new channel successfully.
+func (p *Protocol) openChannel() error {
+	// do not open a new channel if there is a channel already in use
+	if p.channel != 0 {
+		return nil
 	}
+
+	// open a new channel via channel 0 (basic channel)
+	data, code, err := p.execute(stkOpenChannel)
 	if err != nil {
 		return err
 	}
+	if code != ApduOk {
+		return fmt.Errorf("APDU error: %x, opening new channel failed", code)
+	}
+
+	// make sure the operation returned a valid channel number
+	channel, err := strconv.Atoi(data)
+	if err != nil || channel < 1 || channel > 3 {
+		return fmt.Errorf("opening new channel failed, response not a valid channel number: %s", data)
+	}
+
+	// set the channel
+	p.channel = channel
+
+	return nil
+}
+
+// Closes the logical channel used by the protocol object to communicate with the SIM (see ISO 7816 part 4 sect. 6.16)
+// Always uses channel 0 (basic channel) for request. Resets the protocol object's internal channel to 0 if operation
+// was successful. Returns error if closing channel fails.
+func (p *Protocol) closeChannel() error {
+	// make sure not to close channel 0 (basic channel)
+	if p.channel == 0 {
+		return nil
+	}
+
+	// close the channel via channel 0 (basic channel)
+	channel := p.channel
+	p.channel = 0
+	_, code, err := p.execute(stkCloseChannel, channel)
+	if err != nil {
+		p.channel = channel
+		return err
+	}
+	if code != ApduOk {
+		p.channel = channel
+		return fmt.Errorf("APDU error: %x, closing channel %d failed", code, channel)
+	}
+	return nil
+}
+
+func (p *Protocol) checkSIMAccess() error {
+	// wait for SIM to be ready
+	for i := 0; i < 3; i++ {
+		r, err := p.Send("AT+CSIM=?")
+		if err != nil {
+			return fmt.Errorf("SERIAL PORT ERROR: %v", err)
+		}
+		if r[0] == "OK" {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return fmt.Errorf("accessing SIM failed")
+}
+
+// Initialize the SIM card application by authenticating with the SIM with the given pin.
+func (p *Protocol) Init(pin string) error {
+	if err := p.checkSIMAccess(); err != nil {
+		return err
+	}
+
+	// open a separate logical channel to communicate with the SIM
+	if err := p.openChannel(); err != nil {
+		return err
+	}
+
+	// select the SIGNiT applet
+	if err := p.selectApplet(); err != nil {
+		return err
+	}
+
+	// unlock the SIM
 	return p.authenticate(pin)
+}
+
+func (p *Protocol) Deinit() error {
+	return p.closeChannel()
 }
 
 // selectSSEntryID selects an entry in the secure storage using the entry ID, see [1] 2.1.4
@@ -476,32 +564,6 @@ func (p *Protocol) Random(len int) ([]byte, error) {
 	return hex.DecodeString(r)
 }
 
-func (p *Protocol) GetIMSI() (string, error) {
-	if p.Debug {
-		log.Println(">> get IMSI")
-	}
-	const IMSI_LEN = 15
-	var imsi string
-	var err error
-	// sometimes the modem is not ready to retrieve the IMSI yet, so we try again, if it fails
-	for i := 0; i < 3; i++ {
-		time.Sleep(10 * time.Millisecond)
-		var response []string
-		response, err = p.Send("AT+CIMI")
-		if err != nil {
-			continue
-		}
-		if len(response[0]) != IMSI_LEN || response[1] != "OK" {
-			err = fmt.Errorf(response[0])
-			continue
-		}
-		imsi = response[0]
-		err = nil
-		break
-	}
-	return imsi, err
-}
-
 //PutPubKey stores an ECC public key to the SIM cards secure storage
 func (p *Protocol) PutPubKey(name string, uid uuid.UUID, pubKey []byte) error {
 	if p.Debug {
@@ -681,10 +743,15 @@ func (p *Protocol) GenerateKey(name string, uid uuid.UUID) error {
 	return err
 }
 
-func (p *Protocol) GenerateCSR(entryID string, uid uuid.UUID) ([]byte, error) {
+func (p *Protocol) GenerateCSR(entryID string) ([]byte, error) {
 	if p.Debug {
 		log.Printf(">> generate CSR for \"%s\"", entryID)
 	}
+	uid, err := p.GetUUID(entryID)
+	if err != nil {
+		return nil, fmt.Errorf("could not get UUID for \"%s\"", entryID)
+	}
+
 	certAttributes, err := p.encodeBinary([]Tag{
 		{0xD4, []byte("DE")},
 		{0xD5, []byte("Berlin")},
