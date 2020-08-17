@@ -397,7 +397,7 @@ class SimProtocol:
         if code == STK_OK:
             return data
 
-        raise Exception(code)
+        raise Exception("received unexpected response code: {}".format(code))
 
     def erase(self) -> [(int, bytes)]:
         """
@@ -425,7 +425,7 @@ class SimProtocol:
         if code == STK_NF:
             return False
 
-        raise Exception(code)
+        raise Exception("received unexpected response code: {}".format(code))
 
     def store_public_key(self, entry_id: str, uuid: UUID, pub_key: bytes):
         """
@@ -477,7 +477,7 @@ class SimProtocol:
                     # remove the fixed 0x04 prefix from the key entry_id
                     return [tag[1][1:] for tag in _decode_tag(data) if tag[0] == 0xc3][0]
 
-            raise Exception(code)
+            raise Exception("received unexpected response code: {}".format(code))
         finally:
             self._finish_AT_session()
 
@@ -509,7 +509,7 @@ class SimProtocol:
             self._finish_AT_session()
 
         if code != STK_OK:
-            raise Exception(code)
+            raise Exception("received unexpected response code: {}".format(code))
 
     def get_entry_title(self, entry_id: str) -> bytes:
         """
@@ -529,7 +529,7 @@ class SimProtocol:
             # get the entry title
             return [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc0][0]
 
-        raise Exception(code)
+        raise Exception("received unexpected response code: {}".format(code))
 
     def get_uuid(self, entry_id: str) -> UUID:
         """
@@ -596,7 +596,7 @@ class SimProtocol:
                 if code == STK_OK:
                     return [tag[1] for tag in _decode_tag(data) if tag[0] == 0xc3][0]
 
-            raise Exception(code)
+            raise Exception("received unexpected response code: {}".format(code))
         finally:
             self._finish_AT_session()
 
@@ -625,7 +625,7 @@ class SimProtocol:
                 if code == STK_OK:
                     return data
 
-            raise Exception(code)
+            raise Exception("received unexpected response code: {}".format(code))
         finally:
             self._finish_AT_session()
 
@@ -650,7 +650,7 @@ class SimProtocol:
                 if code == '6988':
                     return False
 
-            raise Exception(code)
+            raise Exception("received unexpected response code: {}".format(code))
         finally:
             self._finish_AT_session()
 
