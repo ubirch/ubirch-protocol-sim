@@ -6,7 +6,7 @@ import (
 	"crypto/elliptic"
 	"encoding/binary"
 	"encoding/hex"
-//	"errors"
+	//	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -188,14 +188,17 @@ func (p *Protocol) execute(format string, v ...interface{}) (string, uint16, err
 		responseLength := 0
 		responseData := ""
 		responseCode := uint16(ApduOk)
-
-		_, err := fmt.Sscanf(response[len(response) - 2], "+CSIM: %d,%s", &responseLength, &responseData)
-		if err != nil {
+		if len(response) >= 2 {
+			_, err := fmt.Sscanf(response[len(response)-2], "+CSIM: %d,%s", &responseLength, &responseData)
+			if err != nil {
+				return "", 0, err
+			}
+		} else {
 			return "", 0, err
 		}
 
-        responseData = strings.TrimPrefix(responseData, "\"")
-        responseData = strings.TrimSuffix(responseData, "\"")
+		responseData = strings.TrimPrefix(responseData, "\"")
+		responseData = strings.TrimSuffix(responseData, "\"")
 
 		if responseLength != len(responseData) {
 			return "", 0, fmt.Errorf("response length (%d) does not match data size (%d)", responseLength, len(responseData)) // errors.New("response length does not match data size")
@@ -338,7 +341,7 @@ func (p *Protocol) checkSIMAccess() error {
 		if err != nil {
 			return fmt.Errorf("SERIAL PORT ERROR: %v", err)
 		}
-		if r[len(r) - 1] == "OK" {
+		if r[len(r)-1] == "OK" {
 			return nil
 		}
 		time.Sleep(10 * time.Millisecond)
