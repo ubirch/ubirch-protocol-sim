@@ -194,7 +194,7 @@ func (p *Protocol) execute(format string, v ...interface{}) (string, uint16, err
 				return "", 0, err
 			}
 		} else {
-			return "", 0, err
+			return "", 0, fmt.Errorf("error because the length of the response is too short")
 		}
 
 		responseData = strings.TrimPrefix(responseData, "\"")
