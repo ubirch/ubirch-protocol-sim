@@ -96,7 +96,7 @@ func (sp *SimSerialPort) Init() {
 		}
 
 		// set modem to minimal functionality
-		_, err = sp.Send("AT+CFUN=4,1")
+		_, err = sp.Send("AT+CFUN=4")   // originally: AT+CFUN=4,1
 		if err != nil {
 			log.Fatalf("SERIAL PORT ERROR: %v", err)
 		}
