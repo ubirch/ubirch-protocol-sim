@@ -6,7 +6,7 @@ import (
 	"crypto/elliptic"
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
+//	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -189,12 +189,16 @@ func (p *Protocol) execute(format string, v ...interface{}) (string, uint16, err
 		responseData := ""
 		responseCode := uint16(ApduOk)
 
-		_, err := fmt.Sscanf(response[0], "+CSIM: %d,%s", &responseLength, &responseData)
+		_, err := fmt.Sscanf(response[len(response) - 2], "+CSIM: %d,%s", &responseLength, &responseData)
 		if err != nil {
 			return "", 0, err
 		}
+
+        responseData = strings.TrimPrefix(responseData, "\"")
+        responseData = strings.TrimSuffix(responseData, "\"")
+
 		if responseLength != len(responseData) {
-			return "", 0, errors.New("response length does not match data size")
+			return "", 0, fmt.Errorf("response length (%d) does not match data size (%d)", responseLength, len(responseData)) // errors.New("response length does not match data size")
 		}
 
 		if responseLength >= 4 {
@@ -293,7 +297,7 @@ func (p *Protocol) openChannel() error {
 
 	// make sure the operation returned a valid channel number
 	channel, err := strconv.Atoi(data)
-	if err != nil || channel < 1 || channel > 3 {
+	if err != nil || channel < 1 {
 		return fmt.Errorf("opening new channel failed, response not a valid channel number: %s", data)
 	}
 
@@ -334,7 +338,7 @@ func (p *Protocol) checkSIMAccess() error {
 		if err != nil {
 			return fmt.Errorf("SERIAL PORT ERROR: %v", err)
 		}
-		if r[0] == "OK" {
+		if r[len(r) - 1] == "OK" {
 			return nil
 		}
 		time.Sleep(10 * time.Millisecond)
