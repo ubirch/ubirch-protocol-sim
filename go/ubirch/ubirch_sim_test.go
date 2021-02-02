@@ -501,8 +501,8 @@ func TestSim_GenerateKeyPair(t *testing.T) {
 	asserter.NoErrorf(sim.GenerateKey(testName, uuid.Nil), "failed to generate Key Pair") // TODO, do we need to check for nil UUIDs?
 
 	//delete generated keypair when we're done
-	sim.DeleteSSEntryID(testName)
-	sim.DeleteSSEntryID("_" + testName)
+	sim.DeleteSSEntry(testName)
+	sim.DeleteSSEntry("_" + testName)
 }
 
 // *WARNING* careful with this function, it can block the SIM card,
@@ -711,9 +711,9 @@ func TestSim_StoreCertificate(t *testing.T) {
 	asserter.NoErrorf(certReadX509.CheckSignatureFrom(ca), "Failed to verify Signature from root")
 
 	// remove the test entries
-	sim.DeleteSSEntryID(certName)
-	sim.DeleteSSEntryID(defaultName)
-	sim.DeleteSSEntryID("_" + defaultName)
+	sim.DeleteSSEntry(certName)
+	sim.DeleteSSEntry(defaultName)
+	sim.DeleteSSEntry("_" + defaultName)
 }
 
 // TestSim_UpdateCertificate tests updating a Certificate in the SIM
@@ -794,9 +794,9 @@ func TestSim_UpdateCertificate(t *testing.T) {
 	asserter.NoErrorf(certReadX509Upd.CheckSignatureFrom(ca), "Failed to verify Signature from root")
 
 	// remove the test entries
-	sim.DeleteSSEntryID(certName)
-	sim.DeleteSSEntryID(defaultName)
-	sim.DeleteSSEntryID("_" + defaultName)
+	sim.DeleteSSEntry(certName)
+	sim.DeleteSSEntry(defaultName)
+	sim.DeleteSSEntry("_" + defaultName)
 }
 
 // TestSim_GenerateCSR tests getting a CSR (Certificate Signing Request) from the SIM
@@ -849,8 +849,8 @@ func TestSim_GenerateCSR(t *testing.T) {
 	// test checking if the Public Key Algorithm is correct
 	asserter.Equalf(csrX509.PublicKeyAlgorithm, csrPubKeyAlgorithm, "the public key algorithm is not correct")
 
-	sim.DeleteSSEntryID(defaultName)
-	sim.DeleteSSEntryID("_" + defaultName)
+	sim.DeleteSSEntry(defaultName)
+	sim.DeleteSSEntry("_" + defaultName)
 }
 
 // todo WIP
@@ -1052,7 +1052,7 @@ func TestSIM_PutPubKey(t *testing.T) {
 			setErr := sim.PutPubKey(currTest.pubkeyName, currTest.UUID, currPubkey)
 			//if creation was succesfull, make sure we clean up the key later
 			if setErr == nil {
-				defer sim.DeleteSSEntryID(currTest.pubkeyName)
+				defer sim.DeleteSSEntry(currTest.pubkeyName)
 			}
 
 			// check test outcome vs expectation
@@ -1550,7 +1550,7 @@ func TestSim_Verify(t *testing.T) {
 
 			// Put the pubkey for the test on the SIM (and make sure we clean it up when we're done using 'defer')
 			err = sim.PutPubKey(currTest.nameForPutPubKey, currUUID, currPubkey)
-			defer sim.DeleteSSEntryID(currTest.nameForPutPubKey)
+			defer sim.DeleteSSEntry(currTest.nameForPutPubKey)
 			requirer.NoError(err, "putting pubkey on SIM failed")
 
 			// convert test input string to bytes

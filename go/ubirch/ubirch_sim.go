@@ -507,28 +507,28 @@ func (p *Protocol) GetAllSSEntries() ([]map[string]string, error) {
 	return entryMap, nil
 }
 
-//DeleteSSEntryID deletes an entry in the secure storage (SS) of the SIM using it's entry ID
+//DeleteSSEntry deletes an entry in the secure storage (SS) of the SIM using it's entry ID
 //It returns the response code and the error condition. The code can be used to unambigously check
 //the cause of the error in the caller.
-func (p *Protocol) DeleteSSEntryID(entryID string) (uint16, error) {
+func (p *Protocol) DeleteSSEntry(entryID string) error {
 	if p.Debug {
 		log.Printf(">> deleting SS entry \"%s\"", entryID)
 	}
 	// delete SS entry command
 	_, code, err := p.execute(stkAppSsDeleteEntryID, len(entryID), hex.EncodeToString([]byte(entryID)))
 	if err != nil {
-		return code, err
+		return err
 	}
 
 	switch code {
 	case ApduOk:
-		return code, nil
+		return nil
 	case ApduNotFound:
-		return code, fmt.Errorf("entry \"%s\" not found", entryID)
+		return fmt.Errorf("entry \"%s\" not found", entryID)
 	case ApduWrongData:
-		return code, fmt.Errorf("invalid entry ID length")
+		return fmt.Errorf("invalid entry ID length")
 	default:
-		return code, fmt.Errorf("unexpected return code received")
+		return fmt.Errorf("unexpected return code received: %s", code)
 	}
 }
 
