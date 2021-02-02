@@ -366,10 +366,10 @@ func (p *Protocol) Deinit() error {
 	return p.closeChannel()
 }
 
-// selectSSEntryID selects an entry in the secure storage using the entry ID, see [1] 2.1.4
+// selectSSEntry selects an entry in the secure storage using the entry ID, see [1] 2.1.4
 // returns the entry title (usually UUID) sent by the SIM as response to the command as well as the APDU code and error condition
 //also checks if selected entry ID is the same as in the request
-func (p *Protocol) selectSSEntryID(entryID string) ([]byte, uint16, error) {
+func (p *Protocol) selectSSEntry(entryID string) ([]byte, uint16, error) {
 	if p.Debug {
 		log.Printf(">> selecting SS entry \"%s\"", entryID)
 	}
@@ -410,6 +410,24 @@ func (p *Protocol) selectSSEntryID(entryID string) ([]byte, uint16, error) {
 	return entryTitle, code, nil
 }
 
+// EntryExists checks if an entry with a given entry ID exists in the SIM secure storage
+func (p *Protocol) EntryExists(entryID string) (bool, error) {
+	if p.Debug {
+		log.Printf(">> checking for SS entry \"%s\"", entryID)
+	}
+	_, code, err := p.execute(stkAppSsEntrySelect, len(entryID), hex.EncodeToString([]byte(entryID)))
+	if err != nil {
+		return false, err
+	}
+	if code == ApduNotFound {
+		return false, nil
+	}
+	if code>>8 == 0x61 {
+		return true, nil
+	}
+	return false, fmt.Errorf("received unexpected code: 0x%x", code)
+}
+
 //GetLastSignature reads the SS entry 'LastSign SSEntry' which contains the signature of the
 //last UPP created on the SIM. This entry is sued both for chained and signed packets see manual TLSAuthApp 3.4.1
 func (p *Protocol) GetLastSignature() ([]byte, error) {
@@ -417,7 +435,7 @@ func (p *Protocol) GetLastSignature() ([]byte, error) {
 		log.Printf(">> get last signature")
 	}
 	//Select the entry
-	_, _, err := p.selectSSEntryID("LastSign SSEntry")
+	_, _, err := p.selectSSEntry("LastSign SSEntry")
 	if err != nil {
 		return nil, err
 	}

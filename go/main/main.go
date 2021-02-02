@@ -82,26 +82,31 @@ func main() {
 		log.Fatalf("initialization failed: %v", err)
 	}
 
-	//// store a public key on the SIM TODO make method for storing backend public keys on SIM
-	//dev_pub_key_name := "dev"
-	//dev_pub_key_uuid, err := uuid.Parse("9d3c78ff22f34441a5d185c636d486ff")
+	// store backend public key on the SIM for verification TODO make method for storing backend public keys on SIM
+	pub_key_name := "dev"
+	//err = sim.DeleteSSEntry(pub_key_name)
 	//if err != nil {
-	//	log.Fatalf("failed to parse UUID: %v", err)
+	//	log.Fatalf("deleting backend public key failed: %v", err)
 	//}
-	//dev_pub_key, err := base64.StdEncoding.DecodeString("LnU8BkvGcZQPy5gWVUL+PHA0DP9dU61H8DBO8hZvTyI7lXIlG1/oruVMT7gS2nlZDK9QG+ugkRt/zTrdLrAYDA==")
-	//if err != nil {
-	//	log.Fatalf("decoding base64 encoded public key failed: %v", err)
-	//}
-	//log.Printf("backend public key [base64]: %s", base64.StdEncoding.EncodeToString(dev_pub_key))
-	//
-	////err = sim.DeleteSSEntry(dev_pub_key_name)
-	////if err != nil {
-	////	log.Fatalf("deleting backend public key failed: %v", err)
-	////}
-	//err = sim.PutPubKey(dev_pub_key_name, dev_pub_key_uuid, dev_pub_key)
-	//if err != nil {
-	//	log.Fatalf("storing backend public key failed: %v", err)
-	//}
+	entryExists, err := sim.EntryExists(pub_key_name)
+	if err != nil {
+		log.Fatalf("checking for entry \"%s\" on SIM failed: %v", pub_key_name, err)
+	}
+	if !entryExists {
+		pub_key_uuid, err := uuid.Parse("9d3c78ff22f34441a5d185c636d486ff")
+		if err != nil {
+			log.Fatalf("failed to parse UUID: %v", err)
+		}
+		dev_pub_key, err := base64.StdEncoding.DecodeString("LnU8BkvGcZQPy5gWVUL+PHA0DP9dU61H8DBO8hZvTyI7lXIlG1/oruVMT7gS2nlZDK9QG+ugkRt/zTrdLrAYDA==")
+		if err != nil {
+			log.Fatalf("decoding base64 encoded public key failed: %v", err)
+		}
+		log.Printf("backend public key [base64]: %s", base64.StdEncoding.EncodeToString(dev_pub_key))
+		err = sim.PutPubKey(pub_key_name, pub_key_uuid, dev_pub_key)
+		if err != nil {
+			log.Fatalf("storing backend public key failed: %v", err)
+		}
+	}
 
 	key_name := "ukey"
 	cert_name := "ucrt"
