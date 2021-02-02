@@ -6,16 +6,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
+	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
+	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
+	"go.bug.st/serial"
 	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
-
-	"github.com/google/uuid"
-	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
-	"go.bug.st/serial"
 )
 
 func main() {
@@ -70,6 +69,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("bootstrapping failed: %v", err)
 		}
+		log.Infof("PIN: %s", PIN)
 	}
 
 	sim := ubirch.Protocol{SimInterface: &serialPort, Debug: conf.Debug}
@@ -81,6 +81,27 @@ func main() {
 	if err != nil {
 		log.Fatalf("initialization failed: %v", err)
 	}
+
+	//// store a public key on the SIM TODO make method for storing backend public keys on SIM
+	//dev_pub_key_name := "dev"
+	//dev_pub_key_uuid, err := uuid.Parse("9d3c78ff22f34441a5d185c636d486ff")
+	//if err != nil {
+	//	log.Fatalf("failed to parse UUID: %v", err)
+	//}
+	//dev_pub_key, err := base64.StdEncoding.DecodeString("LnU8BkvGcZQPy5gWVUL+PHA0DP9dU61H8DBO8hZvTyI7lXIlG1/oruVMT7gS2nlZDK9QG+ugkRt/zTrdLrAYDA==")
+	//if err != nil {
+	//	log.Fatalf("decoding base64 encoded public key failed: %v", err)
+	//}
+	//log.Printf("backend public key [base64]: %s", base64.StdEncoding.EncodeToString(dev_pub_key))
+	//
+	////err = sim.DeleteSSEntry(dev_pub_key_name)
+	////if err != nil {
+	////	log.Fatalf("deleting backend public key failed: %v", err)
+	////}
+	//err = sim.PutPubKey(dev_pub_key_name, dev_pub_key_uuid, dev_pub_key)
+	//if err != nil {
+	//	log.Fatalf("storing backend public key failed: %v", err)
+	//}
 
 	key_name := "ukey"
 	cert_name := "ucrt"
@@ -153,16 +174,26 @@ func main() {
 	}
 	log.Printf("UPP [hex]: %s", hex.EncodeToString(upp))
 
-	// try to verify the UPP locally
+	// verify the UPP locally
 	ok, err := sim.Verify(key_name, upp, ubirch.Signed)
 	if err != nil || !ok {
 		log.Fatalf("ERROR local verification failed: %v", err)
 	}
-	log.Printf("verified: %v", ok)
+	log.Printf("UPP locally verified: %v", ok)
 
 	// send UPP to the UBIRCH backend
-	send(upp, uid, conf)
+	resp := send(upp, uid, conf)
 
+	if resp != nil {
+		// verify response signature
+		ok, err = sim.Verify(conf.Env, resp, ubirch.ProtocolType(resp[1]))
+		if err != nil || !ok {
+			log.Fatalf("ERROR backend response signature verification failed: %v", err)
+		}
+		log.Printf("backend response verified: %v", ok)
+	}
+
+	// send chained messages
 	for i := 0; i < 3; i++ {
 		log.Printf(" - - - - - - - - %d. chained UPP: - - - - - - - - ", i+1)
 		p := Payload{int(time.Now().Unix()), uid.String(), int(rand.Uint32())}
@@ -184,15 +215,24 @@ func main() {
 		}
 		log.Printf("UPP [hex]: %s", hex.EncodeToString(upp))
 
-		// try to verify the UPP locally
+		// verify the UPP locally
 		ok, err := sim.Verify(key_name, upp, ubirch.Chained)
 		if err != nil || !ok {
 			log.Fatalf("ERROR local verification failed: %v", err)
 		}
-		log.Printf("verified: %v", ok)
+		log.Printf("UPP locally verified: %v", ok)
 
 		// send UPP to the UBIRCH backend
-		send(upp, uid, conf)
+		resp := send(upp, uid, conf)
+
+		if resp != nil {
+			// verify response signature
+			ok, err = sim.Verify(conf.Env, resp, ubirch.ProtocolType(resp[1]))
+			if err != nil || !ok {
+				log.Fatalf("ERROR backend response signature verification failed: %v", err)
+			}
+			log.Printf("backend response verified: %v", ok)
+		}
 	}
 }
 
@@ -205,9 +245,10 @@ func getPIN(imsi string, conf Config) (string, error) {
 }
 
 // send UPP to the UBIRCH backend
-func send(upp []byte, uid uuid.UUID, conf Config) {
+func send(upp []byte, uid uuid.UUID, conf Config) []byte {
 	if conf.Password == "" {
-		return
+		log.Warn("backend auth (\"password\") not set in config - request not sent")
+		return nil
 	}
 
 	statusCode, respBody, err := post(upp, conf.Niomon, map[string]string{
@@ -216,10 +257,15 @@ func send(upp []byte, uid uuid.UUID, conf Config) {
 		"X-Ubirch-Credential":  base64.StdEncoding.EncodeToString([]byte(conf.Password)),
 	})
 	if err != nil {
-		log.Printf("ERROR: sending UPP failed: %v", err)
-	} else if statusCode != http.StatusOK {
-		log.Printf("ERROR: request to %s failed with status code %d: %s", conf.Niomon, statusCode, hex.EncodeToString(respBody))
-	} else {
-		log.Printf("UPP successfully sent. response: %s", hex.EncodeToString(respBody))
+		log.Errorf("sending UPP failed: %v", err)
+		return nil
 	}
+
+	if statusCode != http.StatusOK {
+		log.Errorf("request to %s failed with status code %d: %s", conf.Niomon, statusCode, hex.EncodeToString(respBody))
+		return nil
+	}
+
+	log.Printf("UPP successfully sent. response: %s", hex.EncodeToString(respBody))
+	return respBody
 }
