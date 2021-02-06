@@ -282,6 +282,10 @@ func (p *Protocol) openChannel() error {
 		return nil
 	}
 
+	if p.Debug {
+		log.Printf(">> opening new channel to SIM")
+	}
+
 	// open a new channel via channel 0 (basic channel)
 	data, code, err := p.execute(stkOpenChannel)
 	if err != nil {
@@ -300,6 +304,10 @@ func (p *Protocol) openChannel() error {
 	// set the channel
 	p.channel = channel
 
+	if p.Debug {
+		log.Printf(">> using channel %d", p.channel)
+	}
+
 	return nil
 }
 
@@ -310,6 +318,10 @@ func (p *Protocol) closeChannel() error {
 	// make sure not to close channel 0 (basic channel)
 	if p.channel == 0 {
 		return nil
+	}
+
+	if p.Debug {
+		log.Printf(">> closing channel %d", p.channel)
 	}
 
 	// close the channel via channel 0 (basic channel)
