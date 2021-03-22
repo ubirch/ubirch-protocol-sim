@@ -8,8 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
+
+	log "github.com/sirupsen/logrus"
 )
 
 // post A http request to the backend service and return response code and body

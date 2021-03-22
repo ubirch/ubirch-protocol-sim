@@ -114,8 +114,8 @@ func (sp *SimSerialPort) GetIMSI() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if len(response[0]) != IMSI_LEN || response[1] != "OK" {
-		return "", fmt.Errorf(response[0])
+	if response[len(response)-1] != "OK" || len(response[len(response)-2]) != IMSI_LEN {
+		return "", fmt.Errorf(response[len(response)-1])
 	}
 	return response[0], err
 }

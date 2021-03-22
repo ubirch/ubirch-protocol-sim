@@ -282,6 +282,10 @@ func (p *Protocol) openChannel() error {
 		return nil
 	}
 
+	if p.Debug {
+		log.Printf(">> opening new channel to SIM")
+	}
+
 	// open a new channel via channel 0 (basic channel)
 	data, code, err := p.execute(stkOpenChannel)
 	if err != nil {
@@ -300,6 +304,10 @@ func (p *Protocol) openChannel() error {
 	// set the channel
 	p.channel = channel
 
+	if p.Debug {
+		log.Printf(">> using channel %d", p.channel)
+	}
+
 	return nil
 }
 
@@ -310,6 +318,10 @@ func (p *Protocol) closeChannel() error {
 	// make sure not to close channel 0 (basic channel)
 	if p.channel == 0 {
 		return nil
+	}
+
+	if p.Debug {
+		log.Printf(">> closing channel %d", p.channel)
 	}
 
 	// close the channel via channel 0 (basic channel)
@@ -366,10 +378,10 @@ func (p *Protocol) Deinit() error {
 	return p.closeChannel()
 }
 
-// selectSSEntryID selects an entry in the secure storage using the entry ID, see [1] 2.1.4
+// selectSSEntry selects an entry in the secure storage using the entry ID, see [1] 2.1.4
 // returns the entry title (usually UUID) sent by the SIM as response to the command as well as the APDU code and error condition
 //also checks if selected entry ID is the same as in the request
-func (p *Protocol) selectSSEntryID(entryID string) ([]byte, uint16, error) {
+func (p *Protocol) selectSSEntry(entryID string) ([]byte, uint16, error) {
 	if p.Debug {
 		log.Printf(">> selecting SS entry \"%s\"", entryID)
 	}
@@ -410,6 +422,24 @@ func (p *Protocol) selectSSEntryID(entryID string) ([]byte, uint16, error) {
 	return entryTitle, code, nil
 }
 
+// EntryExists checks if an entry with a given entry ID exists in the SIM secure storage
+func (p *Protocol) EntryExists(entryID string) (bool, error) {
+	if p.Debug {
+		log.Printf(">> checking for SS entry \"%s\"", entryID)
+	}
+	_, code, err := p.execute(stkAppSsEntrySelect, len(entryID), hex.EncodeToString([]byte(entryID)))
+	if err != nil {
+		return false, err
+	}
+	if code == ApduNotFound {
+		return false, nil
+	}
+	if code>>8 == 0x61 {
+		return true, nil
+	}
+	return false, fmt.Errorf("received unexpected code: 0x%x", code)
+}
+
 //GetLastSignature reads the SS entry 'LastSign SSEntry' which contains the signature of the
 //last UPP created on the SIM. This entry is sued both for chained and signed packets see manual TLSAuthApp 3.4.1
 func (p *Protocol) GetLastSignature() ([]byte, error) {
@@ -417,7 +447,7 @@ func (p *Protocol) GetLastSignature() ([]byte, error) {
 		log.Printf(">> get last signature")
 	}
 	//Select the entry
-	_, _, err := p.selectSSEntryID("LastSign SSEntry")
+	_, _, err := p.selectSSEntry("LastSign SSEntry")
 	if err != nil {
 		return nil, err
 	}
@@ -507,28 +537,28 @@ func (p *Protocol) GetAllSSEntries() ([]map[string]string, error) {
 	return entryMap, nil
 }
 
-//DeleteSSEntryID deletes an entry in the secure storage (SS) of the SIM using it's entry ID
+//DeleteSSEntry deletes an entry in the secure storage (SS) of the SIM using it's entry ID
 //It returns the response code and the error condition. The code can be used to unambigously check
 //the cause of the error in the caller.
-func (p *Protocol) DeleteSSEntryID(entryID string) (uint16, error) {
+func (p *Protocol) DeleteSSEntry(entryID string) error {
 	if p.Debug {
 		log.Printf(">> deleting SS entry \"%s\"", entryID)
 	}
 	// delete SS entry command
 	_, code, err := p.execute(stkAppSsDeleteEntryID, len(entryID), hex.EncodeToString([]byte(entryID)))
 	if err != nil {
-		return code, err
+		return err
 	}
 
 	switch code {
 	case ApduOk:
-		return code, nil
+		return nil
 	case ApduNotFound:
-		return code, fmt.Errorf("entry \"%s\" not found", entryID)
+		return fmt.Errorf("entry \"%s\" not found", entryID)
 	case ApduWrongData:
-		return code, fmt.Errorf("invalid entry ID length")
+		return fmt.Errorf("invalid entry ID length")
 	default:
-		return code, fmt.Errorf("unexpected return code received")
+		return fmt.Errorf("unexpected return code received: %s", code)
 	}
 }
 
