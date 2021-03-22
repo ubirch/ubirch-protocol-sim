@@ -6,18 +6,21 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
-	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
 	"go.bug.st/serial"
 	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
+	"github.com/ubirch/ubirch-protocol-sim/go/ubirch"
 )
 
 func main() {
+	log.SetFormatter(&log.TextFormatter{FullTimestamp: true, TimestampFormat: "2006-01-02 15:04:05.000 -0700"})
+
 	log.Println("SIM Interface Example")
 	if len(os.Args) < 3 {
 		log.Println("usage: main <port> <baudrate>")
@@ -82,62 +85,40 @@ func main() {
 		log.Fatalf("initialization failed: %v", err)
 	}
 
-	// store backend public key on the SIM for verification TODO make method for storing backend public keys on SIM
-	pub_key_name := "dev"
-	//err = sim.DeleteSSEntry(pub_key_name)
-	//if err != nil {
-	//	log.Fatalf("deleting backend public key failed: %v", err)
-	//}
-	entryExists, err := sim.EntryExists(pub_key_name)
-	if err != nil {
-		log.Fatalf("checking for entry \"%s\" on SIM failed: %v", pub_key_name, err)
-	}
-	if !entryExists {
-		pub_key_uuid, err := uuid.Parse("9d3c78ff22f34441a5d185c636d486ff")
-		if err != nil {
-			log.Fatalf("failed to parse UUID: %v", err)
-		}
-		dev_pub_key, err := base64.StdEncoding.DecodeString("LnU8BkvGcZQPy5gWVUL+PHA0DP9dU61H8DBO8hZvTyI7lXIlG1/oruVMT7gS2nlZDK9QG+ugkRt/zTrdLrAYDA==")
-		if err != nil {
-			log.Fatalf("decoding base64 encoded public key failed: %v", err)
-		}
-		log.Printf("backend public key [base64]: %s", base64.StdEncoding.EncodeToString(dev_pub_key))
-		err = sim.PutPubKey(pub_key_name, pub_key_uuid, dev_pub_key)
-		if err != nil {
-			log.Fatalf("storing backend public key failed: %v", err)
-		}
-	}
-
 	key_name := "ukey"
 	cert_name := "ucrt"
 
-	//// generate a key pair !!overwrites existing keys!!
-	//uuidBytes, err := hex.DecodeString(conf.Uuid)
-	//if err != nil {
-	//	log.Fatalf("failed to decode hex string: %v", err)
-	//}
-	//uid, err := uuid.FromBytes(uuidBytes)
-	//if err != nil {
-	//	log.Fatalf("failed to parse UUID: %v", err)
-	//}
-	//err = sim.GenerateKey(key_name, uid)
-	//if err != nil {
-	//	log.Printf("generating key \"%s\" failed: %v", key_name, err)
-	//}
+	// generate a new ECDSA key pair for the device, if there is none stored on the SIM yet
+	entryExists, err := sim.EntryExists(key_name)
+	if err != nil {
+		log.Fatalf("checking for entry \"%s\" on SIM failed: %v", key_name, err)
+	}
+	if !entryExists && conf.Uuid != "" {
+		uid, err := uuid.Parse(conf.Uuid)
+		if err != nil {
+			log.Fatalf("failed to parse UUID: %v", err)
+		}
 
-	// get the UUID associated with the key entry ID
+		// generate a key pair !!! overwrites existing keys with that entry ID !!!
+		err = sim.GenerateKey(key_name, uid)
+		if err != nil {
+			log.Printf("generating key \"%s\" failed: %v", key_name, err)
+		}
+	}
+
+	// get the device UUID associated with the key entry ID
 	uid, err := sim.GetUUID(key_name)
 	if err != nil {
 		log.Fatalf("getting UUID from entry \"%s\" failed: %s", key_name, err)
 	}
-	log.Printf("UUID: %s", uid.String())
+	log.Printf("device UUID: %s", uid.String())
 
-	// get the public key from SIM card
+	// get the device public key from SIM card
 	key, err := sim.GetKey(key_name)
 	if err != nil {
 		log.Fatalf("getting key %s failed: %v", key_name, err)
 	}
-	log.Printf("public key [base64]: %s", base64.StdEncoding.EncodeToString(key))
+	log.Printf("device public key [base64]: %s", base64.StdEncoding.EncodeToString(key))
 
 	// create a X.509 certificate signing request (CSR)
 	csr, err := sim.GenerateCSR(key_name)
@@ -152,6 +133,41 @@ func main() {
 		log.Fatalf("retrieving certificate from SIM failed. %s", err)
 	}
 	log.Printf("X.509 certificate: %x", cert)
+
+	//// delete currently stored backend public key
+	//err = sim.DeleteSSEntry(conf.Env)
+	//if err != nil {
+	//	log.Fatalf("deleting backend public key failed: %v", err)
+	//}
+
+	// store backend public key on the SIM for verification, if the entry does not exist yet
+	entryExists, err = sim.EntryExists(conf.Env)
+	if err != nil {
+		log.Fatalf("checking for entry \"%s\" on SIM failed: %v", conf.Env, err)
+	}
+	if !entryExists {
+		uid, err := uuid.Parse(conf.ServerIdentity.UUID)
+		if err != nil {
+			log.Fatalf("failed to parse UUID: %v", err)
+		}
+
+		pubKey, err := base64.StdEncoding.DecodeString(conf.ServerIdentity.PubKey.ECDSA)
+		if err != nil {
+			log.Fatalf("decoding base64 encoded public key failed: %v", err)
+		}
+
+		err = sim.PutPubKey(conf.Env, uid, pubKey)
+		if err != nil {
+			log.Fatalf("storing backend public key failed: %v", err)
+		}
+	}
+
+	// get the backend public key from SIM card
+	pubKey, err := sim.GetKey(conf.Env)
+	if err != nil {
+		log.Fatalf("getting key %s failed: %v", conf.Env, err)
+	}
+	log.Printf("backend public key [base64]: %s", base64.StdEncoding.EncodeToString(pubKey))
 
 	// send a signed message
 	type Payload struct {
